@@ -1,0 +1,3435 @@
+---
+title: "Continuous Var Analysis"
+author: "Kathy Condon"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(knitr)
+library(tidyverse)
+library(dplyr)
+library(car)
+library(emmeans)
+library(multcomp)
+library(lmerTest)
+library(lme4)
+library(RColorBrewer)
+library(rstatix)
+library(tidyr)
+library(ggpubr)
+library(lubridate)
+library(ggtext)
+library(ggh4x)
+library(ggpattern)
+library(data.table)
+library(MuMIn)
+library(scales)
+library(performance)
+
+
+plot_theme<-theme_classic()+
+  theme(
+    strip.background=element_blank(),
+    strip.text.x=element_text(size=12,
+                              hjust=0,
+                              face="bold",colour="black"),
+    strip.text.y=element_text(size=12,
+                              hjust=0,
+                              face="bold",colour="black"),
+    panel.background=element_rect(fill="transparent"),
+    panel.border=element_rect(fill="transparent",color="black",
+                              linewidth=0.5),
+    plot.background=element_rect(fill="transparent",color=NA),
+    legend.background=element_rect(fill="transparent"),
+    legend.position="none",
+    # legend.title=element_text(size=16,face="bold"),
+    legend.text=element_text(size=12),
+    # axis.line.x=element_line(linewidth=1,color="black"),
+    axis.line.x=element_blank(),
+    axis.line.y=element_blank(),
+    axis.ticks=element_line(linewidth=0.5,color="black"),
+    axis.ticks.length=unit(-0.05,"in"),
+    axis.title = element_text(size=12,
+                              colour="black",face="bold"),
+    axis.text=element_text(size=10,colour="black"),
+    axis.text.x=element_text(angle=0,hjust=0.5,colour="black"),
+    axis.text.y=element_text(colour="black"),
+    plot.title=element_text(size=12),
+    strip.placement="outside")
+  
+```
+
+## VWC
+```{r VWC data}
+#### VWC Full data ####
+vwc.20<-read.csv("final_data/SGS_EW_20cm_VWC.csv")
+
+vwc.20.no.na<-vwc.20%>%
+  # set date formats
+  mutate(new.Date=as.Date(Full.Date,format="%m/%d/%y"),yr=year(new.Date),mon=month(new.Date))%>%
+  mutate(short.Date=paste("2024",mon,day(new.Date),sep="-"))%>%
+  mutate(short.Date=as.Date(short.Date,format="%Y-%m-%d"))%>%
+  # rename variables from original file
+  rename(TRT.2022=Trt_2022)%>%
+  mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
+  rename(TRT.2023=Trt_2023)%>%
+  mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
+  # select columns to keep
+  select(c(new.Date,short.Date,yr,mon,Plot,TRT.2022,TRT.2023,VWC,Notes))%>%
+  # drop rows with VWC NA's
+  drop_na(VWC)%>%
+  # create Unique_ID for dropping specific observations (outliers)
+  mutate(Unique_ID=paste(new.Date,"_Plot",Plot,sep=""))
+
+str(vwc.20) # 1900 observations
+str(vwc.20.no.na) # 1900 observations
+
+vwc.20cm.2024<-subset(vwc.20.no.na,yr=="2024")
+vwc.20cm.2023<-subset(vwc.20.no.na,yr=="2023")
+vwc.20cm.2022<-subset(vwc.20.no.na,yr=="2022")
+
+```
+
+```{r VWC Daily}
+#### 2022 ####
+dat<-vwc.20cm.2022
+dat$resp<-dat$VWC
+
+out.plot<-ggplot(dat,aes(x=as.factor(new.Date),y=resp,color=TRT.2022))+
+  geom_boxplot()+
+  scale_color_manual(values=c("darkorange4","steelblue4"))+
+  theme_classic()+
+  plot_theme+
+  theme(axis.text.x=element_text(angle=45, hjust=1),
+        legend.position="right")
+
+out.plot
+
+ext.22<-dat%>%
+  group_by(new.Date,TRT.2022)%>%
+  identify_outliers(resp)%>%
+  filter(is.extreme==TRUE)
+ext.22
+
+mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022+(1|Plot),data=dat)
+
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check)) # fails
+leveneTest(resp~as.factor(new.Date)*TRT.2022,data=dat) # fails
+
+outlierTest(mod.check) # One outlier 2022-07-05_Plot23 - not totally unreasonable in boxplot so leave in
+# view(dat)
+dat.22<-dat
+
+#### 2022 mod ####
+mod.check<-lmer(log(resp)~as.factor(new.Date)*TRT.2022+(1|Plot),data=dat)
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check)) # fails
+leveneTest(log(resp)~as.factor(new.Date)*TRT.2022,data=dat)
+
+anova(mod.check,ddf="Kenward-Roger")
+
+#### 2023 ####
+dat<-vwc.20cm.2023%>%
+  filter(!Unique_ID %in% c("2023-08-29_Plot3"))
+dat$resp<-dat$VWC
+
+out.plot<-ggplot(dat,aes(x=as.factor(new.Date),y=resp,color=interaction(TRT.2022,TRT.2023)))+
+  # scale_color_manual(values=c("orange","navy"))+
+  scale_color_manual(values=c("darkorange4","sandybrown","lightblue","steelblue4"))+
+  geom_boxplot()+
+  theme_classic()+
+  plot_theme+
+  theme(axis.text.x=element_text(angle=45,hjust=1),
+        legend.position="right")
+out.plot
+
+ext.23<-dat%>%
+  group_by(new.Date,TRT.2022,TRT.2023)%>%
+  identify_outliers(resp)%>%
+  filter(is.extreme==TRUE )
+ext.23
+
+mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022*TRT.2023+(1|Plot),data=dat)
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check)) # fails
+leveneTest(resp~as.factor(new.Date)*TRT.2022*TRT.2023,data=dat) # fails
+
+outlierTest(mod.check) # two outliers 2023-08-29_Plot3 & 2023-08-29_Plot8 (both in the same trt at opposite ends) - removing high outlier (Plot 3) also stops second from being outlier
+# view(dat)
+dat.23<-dat
+
+#### 2023 mod ####
+mod.check<-lmer((resp)~as.factor(new.Date)*TRT.2022*TRT.2023+(1|Plot),data=dat)
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check)) # fails
+leveneTest((resp^2)~as.factor(new.Date)*TRT.2022,data=dat)
+
+anova(mod.check,ddf="Kenward-Roger")
+
+# step(mod.check) # no reduction
+
+#### 2024 ####
+dat<-vwc.20cm.2024
+dat$resp<-dat$VWC
+
+out.plot<-ggplot(dat,aes(x=as.factor(new.Date),y=resp,color=interaction(TRT.2022,TRT.2023)))+
+  # scale_color_manual(values=c("orange","navy"))+
+  scale_color_manual(values=c("darkorange4","sandybrown","lightblue","steelblue4"))+
+  geom_boxplot()+
+  theme_classic()+
+  plot_theme+
+  theme(axis.text.x=element_text(angle=45,hjust=1),
+        legend.position="right")
+out.plot
+
+ext.24<-dat%>%
+  group_by(new.Date,TRT.2022,TRT.2023)%>%
+  identify_outliers(resp)%>%
+  filter(is.extreme==TRUE )
+ext.24
+
+mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022*TRT.2023+(1|Plot),data=dat)
+# performance::check_model(mod.check)
+
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check)) # close but fail 0.002
+leveneTest(resp ~ as.factor(new.Date)*TRT.2022*TRT.2023,data=dat) # close 0.011
+
+outlierTest(mod.check) # no outliers
+# view(dat)
+dat.24<-dat
+
+#### 2024 mod ####
+mod.check<-lmer(log(resp)~as.factor(new.Date)*TRT.2022*TRT.2023+(1|Plot),data=dat)
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check)) # close but fail 0.005
+leveneTest(log(resp)~as.factor(new.Date)*TRT.2022*TRT.2023,data=dat) # OK!
+
+anova(mod.check,ddf="Kenward-Roger")
+
+step(mod.check)
+
+mod.red<-lmer(log(resp)~as.factor(new.Date)+TRT.2022+TRT.2023+as.factor(new.Date)*TRT.2023+(1|Plot),data=dat)
+plot(mod.red)
+qqnorm(resid(mod.red));qqline(resid(mod.red))
+anova(mod.red,ddf="Kenward-Roger")
+
+```
+
+```{r VWC comparisons for growing seasons}
+#### 2022 growing season ####
+str(dat.22) # 800 observations
+
+## Analysis
+gs.avs.22<-dat.22%>%
+  group_by(Plot,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+## ANOVA
+gs.22<-lm(season.av~TRT.2022,data=gs.avs.22)
+shapiro.test(resid(gs.22)) # fine
+leveneTest(season.av~TRT.2022,data=gs.avs.22) # 0.02, use Welch's t-test
+
+Anova(gs.22,type=3) # significant
+
+## T-test
+ggplot(gs.avs.22, aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(gs.avs.22$season.av[gs.avs.22$TRT.2022 == "amb"]) # fine
+shapiro.test(gs.avs.22$season.av[gs.avs.22$TRT.2022 == "wet"]) # fine
+
+t.test(season.av~TRT.2022,data=gs.avs.22) # p < 0.0001
+
+p.22.val<-"p < 0.0001 with Welch's t-test. t = -10.26, df = 31.453"
+
+## Plot
+gs.plot.avs.22<-gs.avs.22%>%
+  group_by(TRT.2022)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2022_VWC_gs_v2.pdf"
+y.lab<-expression(paste(bold("20 cm Soil"["VWC"]*" (%)")))
+ylims=c(0,55)
+p.22.val
+p.val="p < 0.0001"
+text.y=37
+
+gs.22.plot<-ggplot(data=gs.plot.avs.22,aes(x=TRT.2022,y=av,color=TRT.2022,fill=TRT.2022))+
+  labs(title=expression(bold("2022")),y=y.lab,x=NULL,tag="")+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=c("amb"="D","wet"="A"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2022),color="black",
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   )+
+  # geom_bar(width=0.75,
+  #          aes)
+  scale_fill_manual(name=NULL,
+                    values=c("#F8D48C","#B3BEDE"))+
+  # scale_pattern_manual(values=c("stripe",NA))+
+  scale_pattern_manual(values=c(NA,NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  # scale_color_manual(name=NULL,
+  #                    values=c("#F4B942","#4059AD"))+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9))+
+  geom_text(data=subset(gs.plot.avs.22,TRT.2022=="amb"),
+            label=p.val,
+            x=1.5,y=text.y,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.22.plot
+
+# ggsave(gs.22.plot,filename=fi.name,height=3,width=3)
+
+#### 2023 growing season ####
+str(dat.23) # 739 observations
+
+## Analysis
+gs.avs.23<-dat.23%>%
+  group_by(Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+## ANOVA
+gs.23<-lm(season.av~TRT.2022*TRT.2023,data=gs.avs.23)
+plot(gs.23,1)
+qqnorm(resid(gs.23));qqline(resid(gs.23))
+
+shapiro.test(resid(gs.23)) # fine
+leveneTest(season.av~TRT.2022*TRT.2023,data=gs.avs.23) # fine
+
+Anova(gs.23,type=3) # interaction not significant
+pairs(emmeans(gs.23,pairwise~TRT.2022|TRT.2023)) # amb 2023 p = 0.0580 for legacy, wet 2023 p = 0.0113 for legacy
+
+p.23.amb<-"Emmeans pairwise p = 0.0580 (t ratio = -1.958, df = 36), interaction main effect n.s."
+p.23.wet<-"Emmeans pairwise p = 0.0113 (t ratio = -2.672, df = 36), interaction main effect n.s."
+
+gs.23.ni<-lm(season.av~TRT.2022+TRT.2023,data=gs.avs.23)
+shapiro.test(resid(gs.23.ni)) # fine
+Anova(gs.23.ni,type=3) # both significant
+
+## T-test
+ggplot(subset(gs.avs.23,TRT.2023=="wet"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "amb" & 
+                                   gs.avs.23$TRT.2023=="wet"]) # fine
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "wet" & 
+                                   gs.avs.23$TRT.2023=="wet"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(gs.avs.23,TRT.2023=="wet")) # p = 0.007677
+
+
+ggplot(subset(gs.avs.23,TRT.2023=="amb"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "amb" & 
+                                   gs.avs.23$TRT.2023=="amb"]) # fine
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "wet" & 
+                                   gs.avs.23$TRT.2023=="amb"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(gs.avs.23,TRT.2023=="amb")) # p = 0.093
+
+
+## Plot
+gs.plot.avs.23<-gs.avs.23%>%
+  group_by(TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+
+fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2023_VWC_gs_ANOVA.pdf"
+# fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2023_VWC_gs.pdf"
+y.lab<-expression(paste(bold("20 cm Soil"["VWC"]*" (%)")))
+ylims=c(0,55)
+text.y.amb=40
+text.y.wet=46
+
+# ANOVA emmeans
+p.23.amb
+p.val.amb="p = 0.0580"
+p.23.wet
+p.val.wet="p = 0.0113"
+
+# t-tests
+# p.val.amb="p = 0.0930"
+# p.val.wet="p = 0.0077"
+
+
+gs.23.plot<-ggplot(data=gs.plot.avs.23,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(~TRT.2023,scales="free")+
+  labs(title=expression(bold("2023")),y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2023),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   color="black"
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=c("#F4B942","#4059AD"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        strip.text.x=element_blank(),
+        # strip.text.x=element_text(size=10,
+        #                       hjust=0.15,
+        #                       vjust=-6.75,
+        #                       face="bold",
+        #                       colour="black")
+        )+
+  geom_text(data=subset(gs.plot.avs.23,
+                        TRT.2023=="amb" &
+                        TRT.2022 == "amb"),
+            label=p.val.amb,
+            x=1.5,y=text.y.amb,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.23,
+                        TRT.2023=="wet" & 
+                        TRT.2022=="amb"),
+            label=p.val.wet,
+            x=1.5,y=text.y.wet,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.23,
+                        TRT.2022=="amb"),
+            aes(label=TRT.2023,
+            x=0.75,y=51.5),
+            hjust=0,
+            color="black",
+            size=10/.pt,
+            fontface="bold",
+            inherit.aes=FALSE)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.23.plot
+
+# ggsave(gs.23.plot,filename=fi.name,height=3,width=3)
+
+
+#### 2024 growing season ####
+str(dat.24) # 360 observations
+
+## Analysis
+gs.avs.24<-dat.24%>%
+  group_by(Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+## ANOVA
+gs.24<-lm(season.av~TRT.2022*TRT.2023,data=gs.avs.24)
+qqnorm(resid(gs.24));qqline(resid(gs.24)) # fine
+shapiro.test(resid(gs.24)) # fine
+plot(gs.24,1)
+leveneTest(season.av~TRT.2022*TRT.2023,data=gs.avs.24) # fine
+
+Anova(gs.24,type=3) # interaction not significant, main effects not significant
+pairs(emmeans(gs.24,pairwise~TRT.2022|TRT.2023)) # amb 2023 0.1972 leg., wet 2023 0.0742 leg.
+p.24.amb<-"Emmeans pairwise p = 0.1972 (t ratio = -1.314, df = 36), interaction main effect n.s."
+p.24.wet<-"Emmeans pairwise p = 0.0742 (t ratio = -1.839, df = 36), interaction main effect n.s."
+
+step(gs.24)
+gs.24.ni<-lm(season.av~TRT.2022+TRT.2023,data=gs.avs.24)
+shapiro.test(resid(gs.24.ni)) # fine
+Anova(gs.24.ni,type=3) # TRT.2022 significant only
+
+gs.24.red<-lm(season.av~TRT.2022,data=gs.avs.24)
+shapiro.test(resid(gs.24.red)) # fine
+Anova(gs.24.red,type=3)
+
+## T-test
+### wet
+ggplot(subset(gs.avs.24,TRT.2023=="wet"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(gs.avs.24$season.av[gs.avs.24$TRT.2022 == "amb" & 
+                                   gs.avs.24$TRT.2023=="wet"]) # fine
+shapiro.test(gs.avs.24$season.av[gs.avs.24$TRT.2022 == "wet" & 
+                                   gs.avs.24$TRT.2023=="wet"]) # 0.011 fails
+
+t.test(season.av ~ TRT.2022, data=subset(gs.avs.24,TRT.2023=="wet")) # p = 0.06411
+wilcox.test(season.av ~ TRT.2022, data=subset(gs.avs.24,TRT.2023=="wet")) # p = 0.052
+
+### amb
+ggplot(subset(gs.avs.24,TRT.2023=="amb"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(gs.avs.24$season.av[gs.avs.24$TRT.2022 == "amb" & 
+                                   gs.avs.24$TRT.2023=="amb"]) # fine
+shapiro.test(gs.avs.24$season.av[gs.avs.24$TRT.2022 == "wet" & 
+                                   gs.avs.24$TRT.2023=="amb"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(gs.avs.24,TRT.2023=="amb")) # p = 0.2363
+
+
+## Plot
+gs.plot.avs.24<-gs.avs.24%>%
+  group_by(TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+
+fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2024_VWC_gs_ANOVA.pdf"
+# fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2024_VWC_gs.pdf"
+y.lab<-expression(paste(bold("20 cm Soil"["VWC"]*" (%)")))
+ylims=c(0,55)
+text.y.amb=30
+text.y.wet=32
+
+# ANOVA emmeans
+p.24.amb
+p.val.amb="p = 0.1972"
+p.24.wet
+p.val.wet="p = 0.0742"
+
+# t-tests
+# p.val.amb="p = 0.2363"
+# p.val.wet="p = 0.0641"
+
+
+gs.24.plot<-ggplot(data=gs.plot.avs.24,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(~TRT.2023,scales="free")+
+  labs(title=expression(bold("2024")),y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2023),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   color="black"
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=c("#F4B942","#4059AD"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        strip.text.x=element_blank(),
+        # strip.text.x=element_text(size=10,
+        #                       hjust=0.15,
+        #                       vjust=-6.75,
+        #                       face="bold",
+        #                       colour="black")
+        )+
+  geom_text(data=subset(gs.plot.avs.24,
+                        TRT.2023=="amb" &
+                        TRT.2022 == "amb"),
+            label=p.val.amb,
+            x=1.5,y=text.y.amb,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.24,
+                        TRT.2023=="wet" & 
+                        TRT.2022=="amb"),
+            label=p.val.wet,
+            x=1.5,y=text.y.wet,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.24,
+                        TRT.2022=="amb"),
+            aes(label=paste(TRT.2023,"2023"),
+            x=0.7,y=51.5,hjust=0),
+            color="black",
+            size=10/.pt,
+            fontface="bold",
+            inherit.aes=FALSE)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.24.plot
+
+# ggsave(gs.24.plot,filename=fi.name,height=3,width=3)
+
+```
+
+```{r VWC mid and late periods}
+#### 2022 ####
+str(dat.22) # 800 observations
+
+## Analysis
+periods.22<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))
+str(periods.22)
+
+### <- full ANOVAs ####
+log.per.22<-lmer(log(resp)~TRT.2022*period+(1|Plot/period),data=periods.22)
+plot(log.per.22)
+qqnorm(resid(log.per.22));qqline(resid(log.per.22))
+shapiro.test(resid(log.per.22)) # fails but graphically looks decent
+leveneTest(log(resp)~TRT.2022*period, data=periods.22) # fail but graphically looks ok
+
+anova(log.per.22,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(log.per.22,pairwise~TRT.2022|period)) # both < 0.0001
+
+p.full.22.early<-"Emmeans pairwise p < 0.0001 (t ratio -8.870, df = 86.2)"
+p.full.22.late<-"Emmeans pairwise p < 0.0001 (t ratio -9.759, df = 53.2)"
+
+step(log.per.22,reduce.random=FALSE) # keep 2022 trt only 
+
+log.per.22.red<-lmer(log(resp)~TRT.2022+(1|Plot/period),data=periods.22)
+anova(log.per.22.red,ddf="Kenward-Roger")
+
+anova(log.per.22,log.per.22.red) # prefer reduced model
+
+# check pairwise comps of best model
+pairs(emmeans(log.per.22.red,pairwise~TRT.2022)) # sig. different (<0.0001) averaged across periods
+
+#### <- averages ANOVAs & T-tests ####
+season.22.avs<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  group_by(Plot,period,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+season.22.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=season.22.avs)
+plot(season.22.avs.mod)
+qqnorm(resid(season.22.avs.mod));qqline(resid(season.22.avs.mod))
+anova(season.22.avs.mod,ddf="Kenward-Roger") # all significant
+pairs(emmeans(season.22.avs.mod,pairwise~TRT.2022|period)) 
+
+p.seas.22.early<-"Emmeans pairwise p < 0.0001 (t ratio -10.639, df = 51.2"
+p.seas.22.late<-"Emmeans pairwise p < 0.0001 (t ratio -8.808, df = 51.2"
+
+step(season.22.avs.mod) # no reduction
+
+### early to mid period
+early.22.avs<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  filter(period == "early-mid")%>%
+  group_by(Plot,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+str(early.22.avs)
+
+## ANOVA
+early.22<-lm(season.av~TRT.2022,data=early.22.avs)
+shapiro.test(resid(early.22)) # fine
+leveneTest(season.av~TRT.2022,data=early.22.avs) # 0.007, use Welch's for t-test
+
+Anova(early.22,type=3) # significant
+
+## T-test
+ggplot(early.22.avs, aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(early.22.avs$season.av[early.22.avs$TRT.2022 == "amb"]) # fine
+shapiro.test(early.22.avs$season.av[early.22.avs$TRT.2022 == "wet"]) # fine
+
+t.test(season.av ~ TRT.2022, data = early.22.avs) # p < 0.0001
+
+## early plot averages
+early.plot.avs<-early.22.avs%>%
+  group_by(TRT.2022)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots),
+    period = "early-mid")
+
+
+### mid to late period
+late.22.avs<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  filter(period == "mid-late")%>%
+  group_by(Plot,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+str(late.22.avs)
+
+## ANOVA
+late.22<-lm(season.av~TRT.2022,data=late.22.avs)
+shapiro.test(resid(late.22)) # fine
+leveneTest(season.av~TRT.2022,data=late.22.avs) # 0.04, use Welch's for t-test
+
+Anova(late.22,type=3) # significant
+
+## T-test
+ggplot(late.22.avs, aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(late.22.avs$season.av[late.22.avs$TRT.2022 == "amb"]) # fine
+shapiro.test(late.22.avs$season.av[late.22.avs$TRT.2022 == "wet"]) # fine
+
+t.test(season.av ~ TRT.2022, data = late.22.avs) # p < 0.0001
+
+
+## Plot
+late.plot.avs<-late.22.avs%>%
+  group_by(TRT.2022)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots),
+    period = "mid-late")
+
+early.late.plot.avs<-rbind(early.plot.avs,late.plot.avs)
+
+# fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2022_VWC_periods.pdf"
+fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2022_VWC_periods_ANOVA.pdf"
+
+y.lab<-expression(paste(bold("20 cm Soil"["VWC"]*" (%)")))
+ylims=c(0,55)
+
+# t-tests
+# p.val.early="p < 0.0001"
+# p.val.late="p < 0.0001"
+
+# ANOVA 
+p.seas.22.early
+p.val.early="p < 0.0001"
+p.seas.22.late
+p.val.late="p < 0.0001"
+
+text.y.early=35.9
+text.y.late=35.1
+
+early.late.22.plot<-ggplot(data=early.late.plot.avs,aes(x=TRT.2022,y=av,color=TRT.2022,fill=TRT.2022))+
+  labs(title=expression(bold("2022")),y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=c("amb"="Amb.\nDrought","wet"="Exp.\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2022,color=TRT.2022),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=c("#F8D48C","#B3BEDE"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  scale_color_manual(name=NULL,
+                     values=c("#F4B942","#4059AD"))+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        strip.text.x=element_text(size=10))+
+  geom_text(data=subset(early.late.plot.avs,
+                        TRT.2022=="amb" & period =="early-mid"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(early.late.plot.avs,
+                        TRT.2022=="amb" & period =="mid-late"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  facet_wrap(~period)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+early.late.22.plot
+
+# ggsave(early.late.22.plot,filename=fi.name,height=3,width=3)
+
+#### 2023 ####
+str(dat.23) # 739 observations
+
+## Analysis
+periods.23<-dat.23%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2023-07-06") ~ "early-mid",
+    new.Date > ymd("2023-07-06") ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))
+str(periods.23)
+
+wet.23<-subset(periods.23,TRT.2023=="wet")
+amb.23<-subset(periods.23,TRT.2023=="amb")
+
+period.avs.23<-periods.23%>%
+  group_by(period,Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates= n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+wet.avs.23<-subset(period.avs.23,TRT.2023=="wet")
+amb.avs.23<-subset(period.avs.23,TRT.2023=="amb")
+
+#### full combined seasonal ANOVAs ####
+season.23.avs.mod<-lmer(season.av ~ period*TRT.2022*TRT.2023+(1|Plot),data=period.avs.23)
+plot(season.23.avs.mod)
+qqnorm(resid(season.23.avs.mod));qqline(resid(season.23.avs.mod))
+anova(season.23.avs.mod,ddf="Kenward-Roger") # three way interaction NOT significant
+pairs(emmeans(season.23.avs.mod,~TRT.2022|TRT.2023|period))
+
+p.seas.23.amb_early<-"Emmeans pairwise p = 0.0495 (t ratio = -2.015, df = 48.8), main effect of interaction n.s."
+p.seas.23.wet_early<-"Emmeans pairwise p = 0.0941 (t ratio = -1.708, df = 48.8), main effect of interaction n.s."
+p.seas.23.amb_late<-"Emmeans pairwise p = 0.1086 (t ratio = -1.635, df = 48.8), main effect of interaction n.s."
+p.seas.23.wet_late<-"Emmeans pairwise p = 0.0033 (t ratio = -3.094, df = 48.8), main effect of interaction n.s."
+
+step(season.23.avs.mod)
+season.23.avs.mod.red<-lmer(season.av ~ period+TRT.2022+TRT.2023+(1|Plot),data=period.avs.23)
+plot(season.23.avs.mod.red)
+qqnorm(resid(season.23.avs.mod.red));qqline(resid(season.23.avs.mod.red))
+anova(season.23.avs.mod.red,ddf="Kenward-Roger")
+
+
+#### <- wet 2023 ####
+## full ANOVAs
+wet.23.mod<-lmer(resp~period*TRT.2022+(1|Plot/period),data=wet.23)
+plot(wet.23.mod)
+qqnorm(resid(wet.23.mod));qqline(resid(wet.23.mod))
+anova(wet.23.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(wet.23.mod,pairwise~TRT.2022|period)) # early p = 0.0825, late p = 0.0023
+
+wet.23.mod.ni<-lmer(resp~period+TRT.2022+(1|Plot/period),data=wet.23)
+anova(wet.23.mod.ni,ddf="Kenward-Roger") # TRT.2022 p = 0.007 across periods
+pairs(emmeans(wet.23.mod.ni,pairwise~TRT.2022)) # p = 0.007
+
+## seasonal ANOVAs
+wet.23.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=wet.avs.23)
+plot(wet.23.avs.mod)
+qqnorm(resid(wet.23.avs.mod));qqline(resid(wet.23.avs.mod))
+anova(wet.23.avs.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(wet.23.avs.mod,pairwise~TRT.2022|period)) # early p = 0.0751, late p = 0.0023
+
+wet.23.avs.mod.ni<-lmer(season.av~period+TRT.2022+(1|Plot),data=wet.avs.23)
+anova(wet.23.avs.mod.ni,ddf="Kenward-Roger") # TRT.2022 p = 0.00856
+pairs(emmeans(wet.23.avs.mod.ni,pairwise~TRT.2022)) # p = 0.0086
+
+## T-tests
+### early 
+ggplot(subset(wet.avs.23, period == "early-mid"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "amb" &
+                                    wet.avs.23$period == "early-mid"]) # fine
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "wet" & 
+                                    wet.avs.23$period == "early-mid"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(wet.avs.23,period=="early-mid")) # p = 0.08443
+
+### late
+ggplot(subset(wet.avs.23, period == "mid-late"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "amb" &
+                                    wet.avs.23$period == "mid-late"]) # fine
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "wet" & 
+                                    wet.avs.23$period == "mid-late"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(wet.avs.23,period=="mid-late")) # p = 0.003705
+
+#### <- amb 2023 ####
+## full ANOVAs
+amb.23.mod<-lmer(resp~period*TRT.2022+(1|Plot/period),data=amb.23)
+plot(amb.23.mod)
+qqnorm(resid(amb.23.mod));qqline(resid(amb.23.mod))
+anova(amb.23.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(amb.23.mod,pairwise~TRT.2022|period)) # early 0.07, late 0.149
+
+amb.23.mod.ni<-lmer(resp~period+TRT.2022+(1|Plot/period),data=amb.23)
+anova(amb.23.mod.ni,ddf="Kenward-Roger") # TRT.2022 p = 0.08 across periods
+pairs(emmeans(amb.23.mod.ni,pairwise~TRT.2022)) # p = 0.0833
+
+## seasonal ANOVAs
+amb.23.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=amb.avs.23)
+plot(amb.23.avs.mod)
+qqnorm(resid(amb.23.avs.mod));qqline(resid(amb.23.avs.mod))
+anova(amb.23.avs.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(amb.23.avs.mod,pairwise~TRT.2022|period)) # early 0.0732, late 0.1413
+
+amb.23.avs.mod.ni<-lmer(season.av~period+TRT.2022+(1|Plot),data=amb.avs.23)
+anova(amb.23.avs.mod.ni,ddf="Kenward-Roger") # TRT.2022 p = 0.08875
+pairs(emmeans(amb.23.avs.mod.ni,pairwise~TRT.2022)) # p = 0.0888
+
+## T-tests
+### early 
+ggplot(subset(amb.avs.23, period == "early-mid"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "amb" &
+                                    amb.avs.23$period == "early-mid"]) # fine
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "wet" & 
+                                    amb.avs.23$period == "early-mid"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(amb.avs.23,period=="early-mid")) # p = 0.119
+
+### late
+ggplot(subset(amb.avs.23, period == "mid-late"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "amb" &
+                                    amb.avs.23$period == "mid-late"]) # fine
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "wet" & 
+                                    amb.avs.23$period == "mid-late"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(amb.avs.23,period=="mid-late")) # p = 0.08326
+
+## Plot
+periods.plot.avs.23<-period.avs.23%>%
+  group_by(period,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+wet.plot.avs.23<-subset(periods.plot.avs.23,TRT.2023=="wet")
+amb.plot.avs.23<-subset(periods.plot.avs.23,TRT.2023=="amb")
+  
+
+# wet current
+gr_dat<-wet.plot.avs.23
+# fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2023_VWC_periods_wet-current.pdf"
+fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2023_VWC_periods_wet-current_ANOVA.pdf"
+
+# p.val.early="2022 TRT p = 0.007\n(across periods)"
+# text.y.early=70
+
+# p.val.early="p = 0.084" # t-tests p-val
+p.seas.23.wet_early # ANOVA p-val
+p.val.early="p = 0.0941"
+text.y.early=52
+
+# p.val.late="p = 0.0037" # t-tests p-val
+p.seas.23.wet_late # ANOVA p-val
+p.val.late="p = 0.0033"
+text.y.late=42
+
+facet.labs=c("wet - early","wet - late")
+fill.col=c("#4059AD")
+
+# amb current
+gr_dat<-amb.plot.avs.23
+# fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2023_VWC_periods_amb-current.pdf"
+fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2023_VWC_periods_amb-current_ANOVA.pdf"
+
+# p.val.early="2022 TRT p = 0.08\n(across periods)"
+# text.y.early=70
+
+# p.val.early="p = 0.119" # t-test p-val
+p.seas.23.amb_early
+p.val.early="p = 0.0495"
+text.y.early=50
+
+# p.val.late="p = 0.0833" # t-test p-val
+p.seas.23.amb_late
+p.val.late="p = 0.1086"
+text.y.late=31
+
+facet.labs=c("amb - early","amb - late")
+fill.col=c("#F4B942")
+
+# keep on for both
+y.lab<-expression(paste(bold("20 cm Soil"["VWC"]*" (%)")))
+ylims=c(0,55)
+
+
+## Plot
+
+early.late.23.plot<-ggplot(data=gr_dat,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(factor(period, levels = c("early-mid","mid-late"),
+                     labels = facet.labs) ~.)+
+  labs(title=expression(bold("2023")),
+       y=y.lab,x=NULL,
+       # tag=p.val.early
+       )+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2023),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   color="black"
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=fill.col
+                    # values=c("#F4B942")
+                    )+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        strip.text.x=element_text(size=10,
+                              hjust=0,
+                              # vjust=-6.75,
+                              # vjust=-0.8,
+                              face="bold",
+                              colour="black"),
+        # plot.tag.position=c(1,1),
+        # plot.tag=element_text(size=9,
+        #                       hjust=1,
+        #                       face="italic")
+        )+
+  geom_text(data=subset(gr_dat,period=="early-mid" & 
+                        TRT.2022=="amb"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gr_dat,period=="mid-late" & 
+                        TRT.2022=="amb"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+
+
+early.late.23.plot
+
+# ggsave(early.late.23.plot,filename=fi.name,height=3,width=3)
+
+#### 2024 ####
+str(dat.24) # 360 observations
+
+## Analysis
+periods.24<-dat.24%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2024-07-06") ~ "early-mid",
+    new.Date > ymd("2024-07-06") ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))
+str(periods.24)
+
+wet.recent.24<-subset(periods.24,TRT.2023=="wet")
+amb.recent.24<-subset(periods.24,TRT.2023=="amb")
+
+period.avs.24<-periods.24%>%
+  group_by(period,Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+wet.recent.avs.24<-subset(period.avs.24,TRT.2023=="wet")
+amb.recent.avs.24<-subset(period.avs.24,TRT.2023=="amb")
+
+#### full combined season ANOVAs ####
+season.24.avs.mod<-lmer(season.av ~ period*TRT.2022*TRT.2023+(1|Plot),data=period.avs.24)
+plot(season.24.avs.mod)
+qqnorm(resid(season.24.avs.mod));qqline(resid(season.24.avs.mod))
+anova(season.24.avs.mod,ddf="Kenward-Roger")
+pairs(emmeans(season.24.avs.mod,~TRT.2022|TRT.2023|period))
+
+p.seas.24.amb_early<-"Emmeans pairwise p = 0.0602 (t ratio = -1.918, df = 56.1), main effect of interaction n.s."
+p.seas.24.wet_early<-"Emmeans pairwise p = 0.1105 (t ratio = -1.621, df = 56.1), main effect of interaction n.s."
+p.seas.24.amb_late<-"Emmeans pairwise p = 0.5920 (t ratio = -0.539, df = 56.1), main effect of interaction n.s."
+p.seas.24.wet_late<-"Emmeans pairwise p = 0.1143 (t ratio = -1.604, df = 56.1), main effect of interaction n.s."
+
+step(season.24.avs.mod)
+season.24.avs.mod.red<-lmer(season.av ~ TRT.2022 + (1|Plot), data = period.avs.24)
+plot(season.24.avs.mod.red)
+qqnorm(resid(season.24.avs.mod.red));qqline(resid(season.24.avs.mod.red))
+anova(season.24.avs.mod.red,ddf="Kenward-Roger")
+
+#### <- wet 2023 ####
+wet.23.mod<-lmer(log(resp)~period*TRT.2022+(1|Plot/period),data=wet.recent.24)
+plot(wet.23.mod)
+qqnorm(resid(wet.23.mod));qqline(resid(wet.23.mod))
+anova(wet.23.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(wet.23.mod,pairwise~TRT.2022|period)) # early 0.1601, late 9,1796
+
+wet.23.mod.ni<-lmer(log(resp)~period+TRT.2022+(1|Plot/period),data=wet.recent.24)
+anova(wet.23.mod.ni,ddf="Kenward-Roger") # TRT.2022 p = 0.0658 across periods
+pairs(emmeans(wet.23.mod.ni,pairwise~TRT.2022)) # p = 0.0658
+
+## seasonal ANOVAs
+wet.23.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=wet.recent.avs.24)
+plot(wet.23.avs.mod)
+qqnorm(resid(wet.23.avs.mod));qqline(resid(wet.23.avs.mod))
+anova(wet.23.avs.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(wet.23.avs.mod,pairwise~TRT.2022|period)) # early 0.0967, late 0.1002
+
+wet.23.avs.mod.ni<-lmer(season.av~period+TRT.2022+(1|Plot),data=wet.recent.avs.24)
+anova(wet.23.avs.mod.ni,ddf="Kenward-Roger") # TRT.2022 p = 0.06353
+pairs(emmeans(wet.23.avs.mod.ni,pairwise~TRT.2022)) # p = 0.0635
+
+## T-tests
+### early
+ggplot(subset(wet.recent.avs.24,period=="early-mid"),aes(x = season.av, fill = TRT.2022))+
+  geom_density(alpha = 0.5)
+
+shapiro.test(wet.recent.avs.24$season.av[wet.recent.avs.24$TRT.2022 == "amb" &
+                                    wet.recent.avs.24$period == "early-mid"]) # fails
+shapiro.test(wet.recent.avs.24$season.av[wet.recent.avs.24$TRT.2022 == "wet" &
+                                    wet.recent.avs.24$period == "early-mid"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(wet.recent.avs.24,period=="early-mid")) # p = 0.1289
+wilcox.test(season.av ~ TRT.2022, data=subset(wet.recent.avs.24,period=="early-mid")) # p = 0.01854
+
+
+### late
+ggplot(subset(wet.recent.avs.24,period=="mid-late"),aes(x = season.av, fill = TRT.2022))+
+  geom_density(alpha = 0.5)
+
+shapiro.test(wet.recent.avs.24$season.av[wet.recent.avs.24$TRT.2022 == "amb" &
+                                    wet.recent.avs.24$period == "mid-late"]) # fine
+shapiro.test(wet.recent.avs.24$season.av[wet.recent.avs.24$TRT.2022 == "wet" &
+                                    wet.recent.avs.24$period == "mid-late"]) # fails
+
+t.test(season.av ~ TRT.2022, data=subset(wet.recent.avs.24,period=="mid-late")) # p = 0.08456
+wilcox.test(season.av ~ TRT.2022, data=subset(wet.recent.avs.24,period=="mid-late")) # p = 0.1304
+
+
+#### <- amb 2023 ####
+## full ANOVAs
+amb.23.mod<-lmer(log(resp)~period*TRT.2022+(1|Plot/period),data=amb.recent.24)
+plot(amb.23.mod)
+qqnorm(resid(amb.23.mod));qqline(resid(amb.23.mod))
+anova(amb.23.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(amb.23.mod,pairwise~TRT.2022|period)) # early 0.1960, late 0.4797
+
+amb.23.mod.ni<-lmer(resp~period+TRT.2022+(1|Plot/period),data=amb.recent.24)
+anova(amb.23.mod.ni,ddf="Kenward-Roger") # TRT.2022 p = 0.2369 across periods
+
+## seasonal ANOVAs
+amb.23.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=amb.recent.avs.24)
+plot(amb.23.avs.mod)
+qqnorm(resid(amb.23.avs.mod));qqline(resid(amb.23.avs.mod))
+anova(amb.23.avs.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(amb.23.avs.mod,pairwise~TRT.2022|period)) # early 0.0794, late 0.6127
+
+amb.23.avs.mod.ni<-lmer(season.av~period+TRT.2022+(1|Plot),data=amb.recent.avs.24)
+anova(amb.23.avs.mod.ni,ddf="Kenward-Roger") # TRT.2022 p = 0.2035
+
+## T-tests
+### early
+ggplot(subset(amb.recent.avs.24,period=="early-mid"),aes(x = season.av, fill = TRT.2022))+
+  geom_density(alpha = 0.5)
+
+shapiro.test(amb.recent.avs.24$season.av[amb.recent.avs.24$TRT.2022 == "amb" &
+                                    amb.recent.avs.24$period == "early-mid"]) # fine
+shapiro.test(amb.recent.avs.24$season.av[amb.recent.avs.24$TRT.2022 == "wet" &
+                                    amb.recent.avs.24$period == "early-mid"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(amb.recent.avs.24,period=="early-mid")) # p = 0.06963
+
+
+### late
+ggplot(subset(amb.recent.avs.24,period=="mid-late"),aes(x = season.av, fill = TRT.2022))+
+  geom_density(alpha = 0.5)
+
+shapiro.test(amb.recent.avs.24$season.av[amb.recent.avs.24$TRT.2022 == "amb" &
+                                    amb.recent.avs.24$period == "mid-late"]) # fine
+shapiro.test(amb.recent.avs.24$season.av[amb.recent.avs.24$TRT.2022 == "wet" &
+                                    amb.recent.avs.24$period == "mid-late"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(amb.recent.avs.24,period=="mid-late")) # p = 0.6337
+
+
+## Plot
+periods.plot.avs.24<-period.avs.24%>%
+  group_by(period,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+wet.plot.avs.24<-subset(periods.plot.avs.24,TRT.2023=="wet")
+amb.plot.avs.24<-subset(periods.plot.avs.24,TRT.2023=="amb")
+
+
+# wet current
+gr_dat<-wet.plot.avs.24
+# fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2024_VWC_periods_wet-recent.pdf"
+fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2024_VWC_periods_wet-recent_ANOVA.pdf"
+
+# p.val.early="2022 TRT p = 0.0658\n(across periods)"
+# text.y.early=70
+
+# p.val.early="p = 0.1289" # t-test p-val
+p.seas.24.wet_early # ANOVA p-val
+p.val.early="p = 0.1105"
+text.y.early=30
+
+# p.val.late="p = 0.0846" # t-test p-val
+p.seas.24.wet_late
+p.val.late="p = 0.1143"
+text.y.late=30
+
+facet.labs=c(paste("wet 2023 -\nearly"),paste("wet 2023 -\nlate"))
+fill.col=c("#4059AD")
+
+# amb current
+gr_dat<-amb.plot.avs.24
+# fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2024_VWC_periods_amb-current.pdf"
+fi.name<-"fig_exports/VWC/No_Outliers/New/SGS_EW_2024_VWC_periods_amb-current_ANOVA.pdf"
+
+# p.val.early="2022 TRT p = 0.2369\n(across periods)"
+# text.y.early=70
+
+# p.val.early="p = 0.0696" # t-test p-val
+p.seas.24.amb_early # ANOVA p-val
+p.val.early="p = 0.0602"
+text.y.early=30
+
+# p.val.late="p = 0.6337" # t-test p-val
+p.seas.24.amb_late
+p.val.late="p = 0.5920"
+text.y.late=30
+facet.labs=c(paste("amb 2023 -\nearly"),paste("amb 2023 -\nlate"))
+fill.col=c("#F4B942")
+
+# keep on for both
+y.lab<-expression(paste(bold("20 cm Soil"["VWC"]*" (%)")))
+ylims=c(0,55)
+
+
+## Plot
+
+early.late.24.plot<-ggplot(data=gr_dat,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(factor(period, levels = c("early-mid","mid-late"),
+                    labels = facet.labs) ~.)+
+  labs(title=expression(bold("2024")),
+       y=y.lab,x=NULL,
+       # tag=p.val.early
+  )+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
+                   # expand=expansion(0.85)
+  )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2023),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   color="black"
+  )+
+  scale_fill_manual(name=NULL,
+                    values=fill.col
+                    # values=c("#F4B942")
+  )+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        strip.text.x=element_text(size=10,
+                                  hjust=0,
+                                  # vjust=-6.75,
+                                  # vjust=-0.8,
+                                  face="bold",
+                                  colour="black"),
+        plot.tag.position=c(1,1),
+        plot.tag=element_text(size=9,
+                              hjust=1,
+                              face="italic")
+  )+
+  geom_text(data=subset(gr_dat,period=="early-mid" & 
+                        TRT.2022=="amb"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gr_dat,period=="mid-late" & 
+                        TRT.2022=="amb"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+
+
+
+early.late.24.plot
+
+# ggsave(early.late.24.plot,filename=fi.name,height=3,width=3)
+```
+
+## GCC 
+
+```{r GCC data}
+#### GCC Full data ####
+gcc<-read.csv("final_data/SGS_EW_GCC_2022-2024.csv")
+str(gcc)
+
+gcc.no.na<-gcc%>%
+  # set date formats
+  mutate(new.Date=as.Date(Date,format="%m/%d/%y"),yr=year(new.Date),mon=month(new.Date))%>%
+  mutate(short.Date=paste("2024",mon,day(new.Date),sep="-"))%>%
+  mutate(short.Date=as.Date(short.Date,format="%Y-%m-%d"))%>%
+  # rename variables from original file
+  rename(TRT.2022=TRT_2022)%>%
+  mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
+  rename(TRT.2023=TRT_2023)%>%
+  mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
+  # select columns to keep
+  rename(Notes=Notes.)%>%
+  select(c(new.Date,short.Date,yr,mon,Plot,TRT.2022,TRT.2023,GCC,Notes))%>%
+  # drop rows with VWC NA's
+  drop_na(GCC)%>%
+  # create Unique_ID for dropping specific observations (outliers)
+  mutate(Unique_ID=paste(new.Date,"_Plot",Plot,sep=""))
+
+str(gcc) # 1880 observations
+str(gcc.no.na) # 19870 observations
+
+gcc.2024<-subset(gcc.no.na,yr=="2024")
+gcc.2023<-subset(gcc.no.na,yr=="2023")
+gcc.2022<-subset(gcc.no.na,yr=="2022")
+```
+
+```{r GCC Daily}
+#### 2022 ####
+dat<-gcc.2022%>%
+  filter(!Unique_ID %in% c("2022-08-11_Plot9"))
+dat$resp<-dat$GCC
+
+out.plot<-ggplot(dat,aes(x=as.factor(new.Date),y=resp,color=TRT.2022))+
+  geom_boxplot()+
+  scale_color_manual(values=c("darkorange4","steelblue4"))+
+  theme_classic()+
+  plot_theme+
+  theme(axis.text.x=element_text(angle=45, hjust=1),
+        legend.position="right")
+
+out.plot
+
+ext.22<-dat%>%
+  group_by(new.Date,TRT.2022)%>%
+  identify_outliers(resp)%>%
+  filter(is.extreme==TRUE)
+ext.22
+
+mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022+(1|Plot),data=dat)
+# performance::check_model(mod.check)
+
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check)) # fail
+leveneTest(resp~as.factor(new.Date)*TRT.2022,data=dat) # fail
+
+outlierTest(mod.check) # One outlier 2022-08-11_Plot9 (dropped). Second check outlier 2022-08-11_Plot2 (not dropped) and 2022-08-11_Plot36 (not dropped)
+# view(dat)
+dat.22<-dat
+
+#### 2022 mod ####
+mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022+(1|Plot),data=dat)
+# performance::check_model(mod.check)
+
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check)) # fail
+leveneTest(resp~as.factor(new.Date)*TRT.2022,data=dat) # fail
+
+anova(mod.check,ddf="Kenward-Roger") # all sig.
+
+#### 2023 ####
+dat<-gcc.2023%>%
+  filter(!Unique_ID %in% c(
+    "2023-06-28_Plot2",
+  "2023-07-11_Plot2",
+  "2023-07-11_Plot12",
+  "2023-06-28_Plot12",
+  "2023-07-04_Plot2",
+  "2023-07-04_Plot12",
+  "2023-07-18_Plot2"
+  ))
+str(dat)
+
+dat$resp<-dat$GCC
+
+out.plot<-ggplot(dat,aes(x=as.factor(new.Date),y=resp,color=interaction(TRT.2022,TRT.2023)))+
+  # scale_color_manual(values=c("orange","navy"))+
+  scale_color_manual(values=c("darkorange4","sandybrown","lightblue","steelblue4"))+
+  geom_boxplot()+
+  theme_classic()+
+  plot_theme+
+  theme(axis.text.x=element_text(angle=45,hjust=1),
+        legend.position="right")
+out.plot
+
+ext.23<-dat%>%
+  group_by(new.Date,TRT.2022,TRT.2023)%>%
+  identify_outliers(resp)%>%
+  filter(is.extreme==TRUE )
+ext.23
+
+mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022*TRT.2023+(1|Plot),data=dat)
+# performance::check_model(mod.check)
+
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+
+outlierTest(mod.check) # first outlier 2023-06-28_Plot2, second 2023-07-11_Plot2,  third 2023-07-11_Plot12, 2023-06-28_Plot12, 2023-07-04_Plot2 --- all removed (see above)... 2023-06-19_Plot2 also outlier but kept b/c out.plot shows not as unreasonable 
+
+# view(dat)
+dat.23<-dat
+
+#### 2023 mod ####
+mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022*TRT.2023+(1|Plot),data=dat)
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check)) # 0.02 close enough
+leveneTest(resp~as.factor(new.Date)*TRT.2022*TRT.2023,data=dat) # fails 0.0005
+
+anova(mod.check,ddf="Kenward-Roger") # three way is sig.
+
+step(mod.check) # no reduction
+
+#### 2024 ####
+dat<-gcc.2024
+dat$resp<-dat$GCC
+
+out.plot<-ggplot(dat,aes(x=as.factor(new.Date),y=resp,color=interaction(TRT.2022,TRT.2023)))+
+  # scale_color_manual(values=c("orange","navy"))+
+  scale_color_manual(values=c("darkorange4","sandybrown","lightblue","steelblue4"))+
+  geom_boxplot()+
+  theme_classic()+
+  plot_theme+
+  theme(axis.text.x=element_text(angle=45,hjust=1),
+        legend.position="right")
+out.plot
+
+ext.24<-dat%>%
+  group_by(new.Date,TRT.2022,TRT.2023)%>%
+  identify_outliers(resp)%>%
+  filter(is.extreme==TRUE )
+ext.24
+
+mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022*TRT.2023+(1|Plot),data=dat)
+# performance::check_model(mod.check)
+
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+
+outlierTest(mod.check) # no outliers
+# view(dat)
+dat.24<-dat
+
+#### 2024 mod ####
+mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022*TRT.2023+(1|Plot),data=dat)
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check))
+leveneTest(resp~as.factor(new.Date)*TRT.2022*TRT.2023,data=dat)
+
+anova(mod.check,ddf="Kenward-Roger")
+
+step(mod.check)
+
+mod.red<-lmer(resp~as.factor(new.Date)+(1|Plot),data=dat)
+plot(mod.red)
+qqnorm(resid(mod.red));qqline(resid(mod.red))
+shapiro.test(resid(mod.red))
+leveneTest(resp~as.factor(new.Date),data=dat)
+
+anova(mod.red,ddf="Kenward-Roger")
+```
+
+```{r GCC comparisons for growing seasons}
+#### 2022 growing season ####
+str(dat.22) # 793 observations
+
+## Analysis
+gs.avs.22<-dat.22%>%
+  group_by(Plot,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+## ANOVA
+gs.22<-lm(season.av~TRT.2022,data=gs.avs.22) # log and sqrt transformations don't help
+shapiro.test(resid(gs.22)) # 0.02
+qqnorm(resid(gs.22));qqline(resid(gs.22))
+plot(gs.22,1)
+leveneTest(season.av~TRT.2022,data=gs.avs.22) # 0.02, use Welch's t-test
+
+Anova(gs.22,type=3) # significant
+pairs(emmeans(gs.22,pairwise~TRT.2022)) # p < 0.0001
+
+## T-test
+ggplot(gs.avs.22,aes(x = season.av, fill = TRT.2022))+
+  geom_density(alpha = 0.5)
+
+shapiro.test(gs.avs.22$season.av[gs.avs.22$TRT.2022 == "amb"]) # fine
+shapiro.test(gs.avs.22$season.av[gs.avs.22$TRT.2022 == "wet"]) # fine
+
+t.test(season.av ~ TRT.2022, data = gs.avs.22) # p < 0.0001
+
+p.22.val<-"p < 0.0001 with Welch's t-test. t = -14.073, df = 20.666"
+
+## Plot
+gs.plot.avs.22<-gs.avs.22%>%
+  group_by(TRT.2022)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2022_GCC_gs.pdf"
+y.lab<-expression(paste(bold("Canopy Greenness (GCC)")))
+ylims=c(0.33,0.375)
+p.val="p < 0.0001"
+text.y=0.355
+
+gs.22.plot<-ggplot(data=gs.plot.avs.22,aes(x=TRT.2022,y=av,color=TRT.2022,fill=TRT.2022))+
+  labs(title=expression(bold("2022")),y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=c("amb"="Amb.\nDrought","wet"="Exp.\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2022,color=TRT.2022),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=c("#F8D48C","#B3BEDE"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  scale_color_manual(name=NULL,
+                     values=c("#F4B942","#4059AD"))+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9))+
+  geom_text(data=subset(gs.plot.avs.22,TRT.2022=="amb"),
+            label=p.val,
+            x=1.5,y=text.y,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.22.plot
+
+# ggsave(gs.22.plot,filename=fi.name,height=3,width=3)
+
+#### 2023 growing season ####
+str(dat.23) # 749 observations
+
+## Analysis
+gs.avs.23<-dat.23%>%
+  group_by(Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+## ANOVA
+gs.23<-lm(season.av~TRT.2022*TRT.2023,data=gs.avs.23)
+plot(gs.23,1)
+qqnorm(resid(gs.23));qqline(resid(gs.23))
+
+shapiro.test(resid(gs.23)) # fine
+leveneTest(season.av~TRT.2022*TRT.2023,data=gs.avs.23) # fine
+
+Anova(gs.23,type=3) # interaction not significant
+pairs(emmeans(gs.23,pairwise~TRT.2022|TRT.2023)) # amb legacy = 0.2285 n.s., wet = 0.1121 n.s. 
+
+p.23.amb<-"Emmeans pairwise p = 0.2285 (t ratio = 1.225, df = 36), interaction main effect n.s."
+p.23.wet<-"Emmeans pairwise p = 0.1121 (t ratio = 1.629, df = 36), interaction main effect n.s."
+
+gs.23.ni<-lm(season.av~TRT.2022+TRT.2023,data=gs.avs.23)
+shapiro.test(resid(gs.23.ni)) # fine
+Anova(gs.23.ni,type=3) # both significant
+
+## T-test
+### wet 2023
+ggplot(subset(gs.avs.23,TRT.2023=="wet"),aes(x = season.av, fill = TRT.2022))+
+  geom_density(alpha = 0.5)
+
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "amb" & 
+                                   gs.avs.23$TRT.2023=="wet"]) # fine
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "wet" & 
+                                   gs.avs.23$TRT.2023=="wet"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(gs.avs.23,TRT.2023=="wet")) # p = 0.1239
+
+### amb 2023
+ggplot(subset(gs.avs.23,TRT.2023=="amb"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "amb" & 
+                                   gs.avs.23$TRT.2023=="amb"]) # fine
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "wet" & 
+                                   gs.avs.23$TRT.2023=="amb"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(gs.avs.23,TRT.2023=="amb")) # p = 0.2358
+
+## Plot
+gs.plot.avs.23<-gs.avs.23%>%
+  group_by(TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2023_GCC_gs_ANOVA.pdf"
+# fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2023_GCC_gs.pdf"
+y.lab<-expression(paste(bold("Canopy Greeness (GCC)")))
+ylims=c(0.33,0.375)
+
+# ANOVA emmeans
+p.23.amb
+p.val.amb="p = 0.2285"
+p.23.wet
+p.val.wet="p = 0.1121"
+
+# t-tests
+# p.val.amb="p = 0.2358"
+# p.val.wet="p = 0.1239"
+
+
+text.y.amb=0.36
+text.y.wet=0.368
+
+gs.23.plot<-ggplot(data=gs.plot.avs.23,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(~TRT.2023,scales="free")+
+  labs(title=expression(bold("2023")),y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2023),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   color="black"
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=c("#F4B942","#4059AD"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        strip.text.x=element_blank(),
+        # strip.text.x=element_text(size=10,
+        #                       hjust=0.15,
+        #                       vjust=-6.75,
+        #                       face="bold",
+        #                       colour="black")
+        )+
+  geom_text(data=subset(gs.plot.avs.23,
+                        TRT.2023=="amb" &
+                        TRT.2022 == "amb"),
+            label=p.val.amb,
+            x=1.5,y=text.y.amb,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.23,
+                        TRT.2023=="wet" & 
+                        TRT.2022=="amb"),
+            label=p.val.wet,
+            x=1.5,y=text.y.wet,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.23,
+                        TRT.2022=="amb"),
+            aes(label=TRT.2023,
+            x=0.75,y=0.3725),
+            hjust=0,
+            color="black",
+            size=10/.pt,
+            fontface="bold",
+            inherit.aes=FALSE)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.23.plot
+
+# ggsave(gs.23.plot,filename=fi.name,height=3,width=3)
+
+
+#### 2024 growing season ####
+str(dat.24) # 360 observations
+
+## Analysis
+gs.avs.24<-dat.24%>%
+  group_by(Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+## ANOVA
+gs.24<-lm(season.av~TRT.2022*TRT.2023,data=gs.avs.24)
+qqnorm(resid(gs.24));qqline(resid(gs.24))
+shapiro.test(resid(gs.24)) # fine
+plot(gs.24,1)
+leveneTest(season.av~TRT.2022*TRT.2023,data=gs.avs.24) # fine
+
+Anova(gs.24,type=3) # interaction not significant, main effects not significant
+pairs(emmeans(gs.24,pairwise~TRT.2022|TRT.2023)) # p = 0.5884 amb, 0.9227 wet legacies
+p.24.amb<-"Emmeans pairwise p = 0.5884 (t ratio = 0.546, df = 36), interaction main effect n.s."
+p.24.wet<-"Emmeans pairwise p = 0.9227 (t ratio = -0.098, df = 36), interaction main effect n.s."
+
+gs.24.ni<-lm(season.av~TRT.2022+TRT.2023,data=gs.avs.24)
+shapiro.test(resid(gs.24.ni)) # fine
+Anova(gs.24.ni,type=3) # none significant
+
+step(gs.24)
+
+## T-test
+### wet
+ggplot(subset(gs.avs.24,TRT.2023=="wet"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(gs.avs.24$season.av[gs.avs.24$TRT.2022 == "amb" & 
+                                   gs.avs.24$TRT.2023=="wet"]) # fine
+shapiro.test(gs.avs.24$season.av[gs.avs.24$TRT.2022 == "wet" & 
+                                   gs.avs.24$TRT.2023=="wet"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(gs.avs.24,TRT.2023=="wet")) # p = 0.9328
+
+### amb
+ggplot(subset(gs.avs.24,TRT.2023=="amb"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(gs.avs.24$season.av[gs.avs.24$TRT.2022 == "amb" & 
+                                   gs.avs.24$TRT.2023=="amb"]) # fine
+shapiro.test(gs.avs.24$season.av[gs.avs.24$TRT.2022 == "wet" & 
+                                   gs.avs.24$TRT.2023=="amb"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(gs.avs.24,TRT.2023=="amb")) # p = 0.5260
+
+
+## Plot
+gs.plot.avs.24<-gs.avs.24%>%
+  group_by(TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2024_GCC_gs_ANOVA.pdf"
+# fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2024_GCC_gs.pdf"
+y.lab<-expression(paste(bold("Canopy greenness (GCC)")))
+ylims=c(0.33,0.375)
+
+# ANOVA emmeans
+p.24.amb
+p.val.amb="p = 0.5884"
+p.24.wet
+p.val.wet="p = 0.9227"
+
+# t-tests
+# p.val.amb="p = 0.5260"
+# p.val.wet="p = 0.9328"
+
+text.y.amb=0.34
+text.y.wet=0.34
+
+gs.24.plot<-ggplot(data=gs.plot.avs.24,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(~TRT.2023,scales="free")+
+  labs(title=expression(bold("2024")),y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2023),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   color="black"
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=c("#F4B942","#4059AD"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        strip.text.x=element_blank(),
+        # strip.text.x=element_text(size=10,
+        #                       hjust=0.15,
+        #                       vjust=-6.75,
+        #                       face="bold",
+        #                       colour="black")
+        )+
+  geom_text(data=subset(gs.plot.avs.24,
+                        TRT.2023=="amb" &
+                        TRT.2022 == "amb"),
+            label=p.val.amb,
+            x=1.5,y=text.y.amb,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.24,
+                        TRT.2023=="wet" & 
+                        TRT.2022=="amb"),
+            label=p.val.wet,
+            x=1.5,y=text.y.wet,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.24,
+                        TRT.2022=="amb"),
+            aes(label=paste(TRT.2023,"2023"),
+            x=0.7,y=0.3725,hjust=0),
+            color="black",
+            size=10/.pt,
+            fontface="bold",
+            inherit.aes=FALSE)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.24.plot
+
+# ggsave(gs.24.plot,filename=fi.name,height=3,width=3)
+```
+
+```{r GCC mid and late periods}
+#### 2022 ####
+str(dat.22) # 793 observations
+
+## Analysis
+periods.22<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))
+str(periods.22)
+
+#### <- full ANOVAs ####
+log.per.22<-lmer(log(resp)~TRT.2022*period+(1|Plot/period),data=periods.22)
+plot(log.per.22)
+qqnorm(resid(log.per.22));qqline(resid(log.per.22))
+shapiro.test(resid(log.per.22)) # fails
+
+anova(log.per.22,ddf="Kenward-Roger") # all significant
+step(log.per.22,reduce.random=FALSE) # keep all
+
+# check pairwise comps of best model
+pairs(emmeans(log.per.22,pairwise~TRT.2022|period)) # sig. different for both periods (< 0.0001)
+
+#### <- averages ANOVAs & T-tests ####
+season.22.avs<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  group_by(Plot,period,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+season.22.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=season.22.avs)
+plot(season.22.avs.mod)
+leveneTest(season.av~period*TRT.2022,data=season.22.avs) # fails
+qqnorm(resid(season.22.avs.mod));qqline(resid(season.22.avs.mod))
+shapiro.test(resid(season.22.avs.mod)) # fails - transformations do literally nothing
+anova(season.22.avs.mod,ddf="Kenward-Roger") # all significant
+pairs(emmeans(season.22.avs.mod,pairwise~TRT.2022|period))
+
+p.seas.22.early<-"Emmeans pairwise p < 0.0001 (t ratio = -8.445, df = 51.5)"
+p.seas.22.late<-"Emmeans pairwise p < 0.0001 (t ratio = -16.915, df = 51.5)"
+
+### early to mid period
+early.22.avs<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  filter(period == "early-mid")%>%
+  group_by(Plot,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+str(early.22.avs)
+
+## ANOVA
+early.22<-lm(season.av~TRT.2022,data=early.22.avs)
+shapiro.test(resid(early.22)) # fine
+leveneTest(season.av~TRT.2022,data=early.22.avs) # 0.00001, use Welch's for t-test
+
+Anova(early.22,type=3) # significant
+pairs(emmeans(early.22,pairwise~TRT.2022)) # < 0.0001
+
+## T-test
+ggplot(early.22.avs, aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(early.22.avs$season.av[early.22.avs$TRT.2022 == "amb"]) # fine
+shapiro.test(early.22.avs$season.av[early.22.avs$TRT.2022 == "wet"]) # fine
+
+t.test(season.av ~ TRT.2022, data = early.22.avs) # p < 0.0001
+
+## early plot averages
+early.plot.avs<-early.22.avs%>%
+  group_by(TRT.2022)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots),
+    period = "early-mid")
+
+
+### mid to late period
+late.22.avs<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  filter(period == "mid-late")%>%
+  group_by(Plot,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+str(late.22.avs)
+
+## ANOVA
+late.22<-lm(season.av~TRT.2022,data=late.22.avs)
+shapiro.test(resid(late.22)) # 0.04 - close enough
+leveneTest(season.av~TRT.2022,data=late.22.avs) # 0.0001, use Welch's for t-test
+
+Anova(late.22,type=3) # significant
+pairs(emmeans(late.22,pairwise~TRT.2022)) # < 0.0001
+
+## T-test
+ggplot(late.22.avs, aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(late.22.avs$season.av[late.22.avs$TRT.2022 == "amb"]) # fine
+shapiro.test(late.22.avs$season.av[late.22.avs$TRT.2022 == "wet"]) # fine
+
+t.test(season.av ~ TRT.2022, data = early.22.avs) # p < 0.0001
+
+## Plot
+late.plot.avs<-late.22.avs%>%
+  group_by(TRT.2022)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots),
+    period = "mid-late")
+
+early.late.plot.avs<-rbind(early.plot.avs,late.plot.avs)
+
+# fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2022_GCC_periods.pdf"
+fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2022_GCC_periods_ANOVA.pdf"
+
+y.lab<-expression(paste(bold("Canopy greenness (GCC)")))
+ylims=c(0.33,0.375)
+
+# t-tests
+# p.val.early="p < 0.0001"
+# p.val.late="p < 0.0001"
+
+# ANOVA
+p.seas.22.early
+p.val.early="p < 0.0001"
+p.seas.22.late
+p.val.late="p < 0.0001"
+
+text.y.early=0.358
+text.y.late=0.355
+
+early.late.22.plot<-ggplot(data=early.late.plot.avs,aes(x=TRT.2022,y=av,color=TRT.2022,fill=TRT.2022))+
+  labs(title=expression(bold("2022")),y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=c("amb"="Amb.\nDrought","wet"="Exp.\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2022,color=TRT.2022),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=c("#F8D48C","#B3BEDE"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  scale_color_manual(name=NULL,
+                     values=c("#F4B942","#4059AD"))+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        strip.text.x=element_text(size=10))+
+  geom_text(data=subset(early.late.plot.avs,
+                        TRT.2022=="amb" & period =="early-mid"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(early.late.plot.avs,
+                        TRT.2022=="amb" & period =="mid-late"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  facet_wrap(~period)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+early.late.22.plot
+
+# ggsave(early.late.22.plot,filename=fi.name,height=3,width=3)
+
+#### 2023 ####
+str(dat.23) # 749 observations
+
+## Analysis
+periods.23<-dat.23%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2023-07-06") ~ "early-mid",
+    new.Date > ymd("2023-07-06") ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))
+str(periods.23)
+
+wet.23<-subset(periods.23,TRT.2023=="wet")
+amb.23<-subset(periods.23,TRT.2023=="amb")
+
+period.avs.23<-periods.23%>%
+  group_by(period,Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates= n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+wet.avs.23<-subset(period.avs.23,TRT.2023=="wet")
+amb.avs.23<-subset(period.avs.23,TRT.2023=="amb")
+
+#### full combined seasonal ANOVAs ####
+season.23.avs.mod<-lmer(season.av ~ period*TRT.2022*TRT.2023+(1|Plot),data=period.avs.23)
+plot(season.23.avs.mod)
+qqnorm(resid(season.23.avs.mod));qqline(resid(season.23.avs.mod))
+anova(season.23.avs.mod,ddf="Kenward-Roger") # three way interaction IS significant
+pairs(emmeans(season.23.avs.mod,~TRT.2022|TRT.2023|period))
+
+p.seas.23.amb_early<-"Emmeans pairwise p = 0.0132 (t ratio = 2.563, df = 53.5)"
+p.seas.23.wet_early<-"Emmeans pairwise p < 0.0001 (t ratio = 4.497, df = 53.5)"
+p.seas.23.amb_late<-"Emmeans pairwise p = 0.4898 (t ratio = -0.695, df = 53.5)"
+p.seas.23.wet_late<-"Emmeans pairwise p = 0.0582 (t ratio = -1.936, df = 53.5)"
+
+step(season.23.avs.mod) # no reduction
+
+
+#### <- wet 2023 ####
+## full ANOVAs
+wet.23.mod<-lmer(resp~period*TRT.2022+(1|Plot/period),data=wet.23)
+plot(wet.23.mod)
+qqnorm(resid(wet.23.mod));qqline(resid(wet.23.mod))
+anova(wet.23.mod,ddf="Kenward-Roger") # interaction significant
+pairs(emmeans(wet.23.mod,pairwise~TRT.2022|period)) # early p = 0.0025, late p = 0.1945
+
+## seasonal ANOVAs
+wet.23.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=wet.avs.23)
+plot(wet.23.avs.mod)
+qqnorm(resid(wet.23.avs.mod));qqline(resid(wet.23.avs.mod))
+anova(wet.23.avs.mod,ddf="Kenward-Roger") # interaction significant
+pairs(emmeans(wet.23.avs.mod,pairwise~TRT.2022|period)) # early 0.0001, late 0.0654
+
+## T-tests
+### early 
+ggplot(subset(wet.avs.23, period == "early-mid"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "amb" &
+                                    wet.avs.23$period == "early-mid"]) # fine
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "wet" & 
+                                    wet.avs.23$period == "early-mid"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(wet.avs.23,period=="early-mid")) # p = 0.00003 (3.31e-5)
+
+### late
+ggplot(subset(wet.avs.23, period == "mid-late"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "amb" &
+                                    wet.avs.23$period == "mid-late"]) # close enough
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "wet" & 
+                                    wet.avs.23$period == "mid-late"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(wet.avs.23,period=="mid-late")) # p = 0.118
+wilcox.test(season.av ~ TRT.2022, data = subset(wet.avs.23,period=="mid-late")) # p = 0.075
+
+#### <- amb 2023 ####
+## full ANOVAs
+amb.23.mod<-lmer(resp~period*TRT.2022+(1|Plot/period),data=amb.23)
+plot(amb.23.mod)
+qqnorm(resid(amb.23.mod));qqline(resid(amb.23.mod))
+anova(amb.23.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(amb.23.avs.mod,pairwise~TRT.2022|period)) # early p = 0.0794, late p = 0.6127
+
+amb.23.mod.ni<-lmer(resp~period+TRT.2022+(1|Plot/period),data=amb.23)
+anova(amb.23.mod.ni,ddf="Kenward-Roger") # TRT.2022 n.s.
+pairs(emmeans(amb.23.mod.ni,pairwise~TRT.2022)) # n.s. 0.2577
+
+## seasonal ANOVAs
+amb.23.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=amb.avs.23)
+plot(amb.23.avs.mod)
+qqnorm(resid(amb.23.avs.mod));qqline(resid(amb.23.avs.mod))
+anova(amb.23.avs.mod,ddf="Kenward-Roger") # keep interaction
+pairs(emmeans(amb.23.avs.mod,pairwise~TRT.2022|period)) # early sig (p = 0.0156), late n.s. (p = 0.4894)
+
+## T-tests
+### early 
+ggplot(subset(amb.avs.23, period == "early-mid"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "amb" &
+                                    amb.avs.23$period == "early-mid"]) # fine
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "wet" & 
+                                    amb.avs.23$period == "early-mid"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(amb.avs.23,period=="early-mid")) # p = 0.02239
+
+### late
+ggplot(subset(amb.avs.23, period == "mid-late"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "amb" &
+                                    amb.avs.23$period == "mid-late"]) # fine
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "wet" & 
+                                    amb.avs.23$period == "mid-late"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(amb.avs.23,period=="mid-late")) # p = 0.4864
+
+## Plot
+periods.plot.avs.23<-period.avs.23%>%
+  group_by(period,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+wet.plot.avs.23<-subset(periods.plot.avs.23,TRT.2023=="wet")
+amb.plot.avs.23<-subset(periods.plot.avs.23,TRT.2023=="amb")
+  
+
+# wet current
+gr_dat<-wet.plot.avs.23
+# fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2023_GCC_periods_wet-current.pdf"
+fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2023_GCC_periods_wet-current_ANOVA.pdf"
+
+# p.val.early="p < 0.0001" # t-test p-val
+p.seas.23.wet_early # ANOVA p-val
+p.val.early="p < 0.0001"
+text.y.early=0.373
+
+# p.val.late="p = 0.118" # t-test p-val
+p.seas.23.wet_late # ANOVA p-val
+p.val.late="p = 0.0582"
+text.y.late=0.37
+
+facet.labs=c("wet - early","wet - late")
+fill.col=c("#4059AD")
+
+# amb current
+gr_dat<-amb.plot.avs.23
+# fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2023_GCC_periods_amb-current.pdf"
+fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2023_GCC_periods_amb-current_ANOVA.pdf"
+
+# p.val.early="p = 0.0224" # t-test p-val
+p.seas.23.amb_early
+p.val.early="p = 0.0132"
+text.y.early=0.37
+
+# p.val.late="p = 0.4864" # t-test p-val
+p.seas.23.amb_late
+p.val.late="p = 0.4898"
+text.y.late=0.3515
+facet.labs=c("amb - early","amb - late")
+fill.col=c("#F4B942")
+
+# keep on for both
+y.lab<-expression(paste(bold("Canopy greenness (GCC)")))
+ylims=c(0.33,0.375)
+
+
+## Plot
+early.late.23.plot<-ggplot(data=gr_dat,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(factor(period, levels = c("early-mid","mid-late"),
+                     labels = facet.labs) ~.)+
+  labs(title=expression(bold("2023")),
+       y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2023),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   color="black"
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=fill.col
+                    # values=c("#F4B942")
+                    )+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  geom_text(data=subset(gr_dat,period == "early-mid" & TRT.2022 == "amb"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gr_dat,period == "mid-late" & TRT.2022 == "amb"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        strip.text.x=element_text(size=10,
+                              hjust=0,
+                              # vjust=-6.75,
+                              # vjust=-0.8,
+                              face="bold",
+                              colour="black")
+        )+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+
+
+early.late.23.plot
+
+# ggsave(early.late.23.plot,filename=fi.name,height=3,width=3)
+
+#### 2024 ####
+str(dat.24) # 320 observations
+
+## Analysis
+periods.24<-dat.24%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2024-07-06") ~ "early-mid",
+    new.Date > ymd("2024-07-06") ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))
+str(periods.24)
+
+wet.recent.24<-subset(periods.24,TRT.2023=="wet")
+amb.recent.24<-subset(periods.24,TRT.2023=="amb")
+
+period.avs.24<-periods.24%>%
+  group_by(period,Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+wet.recent.avs.24<-subset(period.avs.24,TRT.2023=="wet")
+amb.recent.avs.24<-subset(period.avs.24,TRT.2023=="amb")
+
+#### full combined season ANOVAs ####
+season.24.avs.mod<-lmer(season.av ~ period*TRT.2022*TRT.2023+(1|Plot),data=period.avs.24)
+plot(season.24.avs.mod)
+qqnorm(resid(season.24.avs.mod));qqline(resid(season.24.avs.mod))
+anova(season.24.avs.mod,ddf="Kenward-Roger") # three way interaction NOT sig.
+pairs(emmeans(season.24.avs.mod,~TRT.2022|TRT.2023|period))
+
+p.seas.24.amb_early<-"Emmeans pairwise p = 0.9941 (t ratio = -0.007, df = 55.5), main effect of interaction n.s."
+p.seas.24.wet_early<-"Emmeans pairwise p = 0.7359 (t ratio = 0.339, df = 55.5), main effect of interaction n.s."
+p.seas.24.amb_late<-"Emmeans pairwise p = 0.4268 (t ratio = 0.801, df = 55.5), main effect of interaction n.s."
+p.seas.24.wet_late<-"Emmeans pairwise p = 0.7308 (t ratio = -0.346, df = 55.5), main effect of interaction n.s."
+
+step(season.24.avs.mod)
+season.24.avs.mod.red<-lmer(season.av ~ period+(1|Plot),data=period.avs.24)
+plot(season.24.avs.mod.red)
+qqnorm(resid(season.24.avs.mod.red));qqline(resid(season.24.avs.mod.red))
+anova(season.24.avs.mod.red,ddf="Kenward-Roger")
+
+#### <- wet 2023 ####
+wet.23.mod<-lmer((resp)~period*TRT.2022+(1|Plot/period),data=wet.recent.24)
+plot(wet.23.mod)
+qqnorm(resid(wet.23.mod));qqline(resid(wet.23.mod))
+anova(wet.23.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(wet.23.mod,pairwise~TRT.2022|period)) # neither significant
+
+wet.23.mod.ni<-lmer((resp)~period+TRT.2022+(1|Plot/period),data=wet.recent.24)
+anova(wet.23.mod.ni,ddf="Kenward-Roger") # none significant
+
+## seasonal ANOVAs
+wet.23.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=wet.recent.avs.24)
+plot(wet.23.avs.mod)
+qqnorm(resid(wet.23.avs.mod));qqline(resid(wet.23.avs.mod))
+anova(wet.23.avs.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(wet.23.avs.mod,pairwise~TRT.2022|period)) # neither significant
+
+wet.23.avs.mod.ni<-lmer(season.av~period+TRT.2022+(1|Plot),data=wet.recent.avs.24)
+anova(wet.23.avs.mod.ni,ddf="Kenward-Roger") # n.s.
+
+## T-tests
+### early
+ggplot(subset(wet.recent.avs.24,period=="early-mid"),aes(x = season.av, fill = TRT.2022))+
+  geom_density(alpha = 0.5)
+
+shapiro.test(wet.recent.avs.24$season.av[wet.recent.avs.24$TRT.2022 == "amb" &
+                                    wet.recent.avs.24$period == "early-mid"]) # fine
+shapiro.test(wet.recent.avs.24$season.av[wet.recent.avs.24$TRT.2022 == "wet" &
+                                    wet.recent.avs.24$period == "early-mid"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(wet.recent.avs.24,period=="early-mid")) # p = 0.7670
+
+### late
+ggplot(subset(wet.recent.avs.24,period=="mid-late"),aes(x = season.av, fill = TRT.2022))+
+  geom_density(alpha = 0.5)
+
+shapiro.test(wet.recent.avs.24$season.av[wet.recent.avs.24$TRT.2022 == "amb" &
+                                    wet.recent.avs.24$period == "mid-late"]) # fine
+shapiro.test(wet.recent.avs.24$season.av[wet.recent.avs.24$TRT.2022 == "wet" &
+                                    wet.recent.avs.24$period == "mid-late"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(wet.recent.avs.24,period=="mid-late")) # p = 0.7662
+
+
+#### <- amb 2023 ####
+## full ANOVAs
+amb.23.mod<-lmer(log(resp)~period*TRT.2022+(1|Plot/period),data=amb.recent.24)
+plot(amb.23.mod)
+qqnorm(resid(amb.23.mod));qqline(resid(amb.23.mod))
+anova(amb.23.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(amb.23.mod,pairwise~TRT.2022|period)) # niether significant
+
+amb.23.mod.ni<-lmer(log(resp)~period+TRT.2022+(1|Plot/period),data=amb.recent.24)
+anova(amb.23.mod.ni,ddf="Kenward-Roger") # n.s.
+
+## seasonal ANOVAs
+amb.23.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=amb.recent.avs.24)
+plot(amb.23.avs.mod)
+qqnorm(resid(amb.23.avs.mod));qqline(resid(amb.23.avs.mod))
+anova(amb.23.avs.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(amb.23.avs.mod,pairwise~TRT.2022|period)) # neither significant
+
+amb.23.avs.mod.ni<-lmer(season.av~period+TRT.2022+(1|Plot),data=amb.recent.avs.24)
+anova(amb.23.avs.mod.ni,ddf="Kenward-Roger") # only period significant
+
+## T-tests
+### early
+ggplot(subset(amb.recent.avs.24,period=="early-mid"),aes(x = season.av, fill = TRT.2022))+
+  geom_density(alpha = 0.5)
+
+shapiro.test(amb.recent.avs.24$season.av[amb.recent.avs.24$TRT.2022 == "amb" &
+                                    amb.recent.avs.24$period == "early-mid"]) # fine
+shapiro.test(amb.recent.avs.24$season.av[amb.recent.avs.24$TRT.2022 == "wet" &
+                                    amb.recent.avs.24$period == "early-mid"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(amb.recent.avs.24,period=="early-mid")) # p = 0.9907
+
+
+### late
+ggplot(subset(amb.recent.avs.24,period=="mid-late"),aes(x = season.av, fill = TRT.2022))+
+  geom_density(alpha = 0.5)
+
+shapiro.test(amb.recent.avs.24$season.av[amb.recent.avs.24$TRT.2022 == "amb" &
+                                    amb.recent.avs.24$period == "mid-late"]) # fine
+shapiro.test(amb.recent.avs.24$season.av[amb.recent.avs.24$TRT.2022 == "wet" &
+                                    amb.recent.avs.24$period == "mid-late"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(amb.recent.avs.24,period=="mid-late")) # p = 0.4452
+
+## Plot
+periods.plot.avs.24<-period.avs.24%>%
+  group_by(period,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+wet.plot.avs.24<-subset(periods.plot.avs.24,TRT.2023=="wet")
+amb.plot.avs.24<-subset(periods.plot.avs.24,TRT.2023=="amb")
+
+
+# wet current
+gr_dat<-wet.plot.avs.24
+# fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2024_GCC_periods_wet-recent.pdf"
+fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2024_GCC_periods_wet-recent_ANOVA.pdf"
+
+# p.val.early="p = 0.7670" # t-test p-val
+p.seas.24.wet_early
+p.val.early="p = 0.7359"
+text.y.early=0.34
+
+# p.val.late="p = 0.7662" # t-test p-val
+p.seas.24.wet_late
+p.val.late="p = 0.7308"
+text.y.late=0.34
+
+facet.labs=c(paste("wet 2023 -\nearly"),paste("wet 2023 -\nlate"))
+fill.col=c("#4059AD")
+
+# amb current
+gr_dat<-amb.plot.avs.24
+# fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2024_GCC_periods_amb-current.pdf"
+fi.name<-"fig_exports/GCC/No_Outliers/New/SGS_EW_2024_GCC_periods_amb-current_ANOVA.pdf"
+
+# p.val.early="p = 0.9907" # t-test p-val
+p.seas.24.amb_early
+p.val.early="p = 0.9941"
+text.y.early=0.34
+
+# p.val.late="p = 0.4452" # t-test p-val
+p.seas.24.amb_late
+p.val.late="p = 0.4268"
+text.y.late=0.34
+
+facet.labs=c(paste("amb 2023 -\nearly"),paste("amb 2023 -\nlate"))
+fill.col=c("#F4B942")
+
+# keep on for both
+y.lab<-expression(paste(bold("Canopy greenness (GCC)")))
+ylims=c(0.33,0.375)
+
+
+## Plot
+early.late.24.plot<-ggplot(data=gr_dat,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(factor(period, levels = c("early-mid","mid-late"),
+                    labels = facet.labs) ~.)+
+  labs(title=expression(bold("2024")),
+       y=y.lab,x=NULL
+  )+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),
+                     oob=scales::squish)+
+  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
+                   # expand=expansion(0.85)
+  )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2023),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   color="black"
+  )+
+  scale_fill_manual(name=NULL,
+                    values=fill.col
+                    # values=c("#F4B942")
+  )+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  geom_text(data=subset(gr_dat,period == "early-mid" & TRT.2022 == "amb"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gr_dat,period == "mid-late" & TRT.2022 == "amb"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        strip.text.x=element_text(size=10,
+                                  hjust=0,
+                                  # vjust=-6.75,
+                                  # vjust=-0.8,
+                                  face="bold",
+                                  colour="black"),
+        plot.tag.position=c(1,1),
+        plot.tag=element_text(size=9,
+                              hjust=1,
+                              face="italic")
+  )+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+
+
+
+early.late.24.plot
+
+# ggsave(early.late.24.plot,filename=fi.name,height=3,width=3)
+```
+
+## Respiration
+
+```{r Resp data}
+#### Efflux Full data ####
+resp<-read.csv("final_data/SGS_EW_Efflux_2022-2023.csv")
+str(resp)
+
+resp[resp=="ambient"]<-"amb"
+
+resp.no.na<-resp%>%
+  # set date formats
+  mutate(new.Date=as.Date(Full.Date,format="%m/%d/%y"),yr=year(new.Date),mon=month(new.Date))%>%
+  mutate(short.Date=paste("2024",mon,day(new.Date),sep="-"))%>%
+  mutate(short.Date=as.Date(short.Date,format="%Y-%m-%d"))%>%
+  # rename variables from original file
+  rename(TRT.2022=TRT_2022)%>%
+  mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
+  rename(TRT.2023=TRT_2023)%>%
+  mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
+  # select columns to keep
+  select(c(new.Date,short.Date,yr,mon,Plot,TRT.2022,TRT.2023,Soil.temp,Efflux,Notes))%>%
+  # drop rows with VWC NA's
+  drop_na(Efflux)%>%
+  # create Unique_ID for dropping specific observations (outliers)
+  mutate(Unique_ID=paste(new.Date,"_Plot",Plot,sep=""))
+
+str(resp) # 721 observations
+str(resp.no.na) # 712 observations
+
+resp.2023<-subset(resp.no.na,yr=="2023")
+resp.2022<-subset(resp.no.na,yr=="2022")
+```
+
+```{r Resp Daily}
+#### 2022 ####
+dat<-resp.2022
+dat$resp<-dat$Efflux
+
+out.plot<-ggplot(dat,aes(x=as.factor(new.Date),y=resp,color=TRT.2022))+
+  geom_boxplot()+
+  scale_color_manual(values=c("darkorange4","steelblue4"))+
+  theme_classic()+
+  plot_theme+
+  theme(axis.text.x=element_text(angle=45, hjust=1),
+        legend.position="right")
+
+out.plot
+
+ext.22<-dat%>%
+  group_by(new.Date,TRT.2022)%>%
+  identify_outliers(resp)%>%
+  filter(is.extreme==TRUE)
+ext.22
+
+mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022+(1|Plot),data=dat)
+# performance::check_model(mod.check)
+
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+
+outlierTest(mod.check) # two outliers but not on plot, so leaving both in (one has note that ran again in field to check high and was high again so OK)
+
+dat.22<-dat
+
+#### 2022 mod ####
+mod.check<-lmer(sqrt(resp)~as.factor(new.Date)*TRT.2022+(1|Plot),data=dat)
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check))
+leveneTest(log(resp)~as.factor(new.Date)*TRT.2022,data=dat)
+
+anova(mod.check,ddf="Kenward-Roger")
+
+#### 2023 ####
+dat<-resp.2023%>%
+  filter(!Unique_ID %in% c("2023-06-28_Plot35"))
+str(dat)
+
+dat$resp<-dat$Efflux
+
+out.plot<-ggplot(dat,aes(x=as.factor(new.Date),y=resp,color=interaction(TRT.2022,TRT.2023)))+
+  # scale_color_manual(values=c("orange","navy"))+
+  scale_color_manual(values=c("darkorange4","sandybrown","lightblue","steelblue4"))+
+  geom_boxplot()+
+  theme_classic()+
+  plot_theme+
+  theme(axis.text.x=element_text(angle=45,hjust=1),
+        legend.position="right")
+out.plot
+
+ext.23<-dat%>%
+  group_by(new.Date,TRT.2022,TRT.2023)%>%
+  identify_outliers(resp)%>%
+  filter(is.extreme==TRUE )
+ext.23
+
+mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022*TRT.2023+(1|Plot),data=dat)
+# performance::check_model(mod.check)
+
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+
+outlierTest(mod.check) # outlier on 6/28 had note about coller looking extremely wet from watering day before still, second reading was also high BUT dropped b/c seems like it wasn't drying same as other plots for some reason that day                                                                        
+# view(dat)
+dat.23<-dat
+
+#### 2023 mod ####
+mod.check<-lmer(sqrt(resp)~as.factor(new.Date)*TRT.2022*TRT.2023+(1|Plot),data=dat)
+plot(mod.check)
+qqnorm(resid(mod.check));qqline(resid(mod.check))
+shapiro.test(resid(mod.check))
+leveneTest(sqrt(resp)~as.factor(new.Date)*TRT.2022*TRT.2023,data=dat)
+anova(mod.check,ddf="Kenward-Roger")
+
+step(mod.check)
+
+mod.red<-lmer(sqrt(resp)~as.factor(new.Date)+TRT.2022+TRT.2023+as.factor(new.Date)*TRT.2022+as.factor(new.Date)*TRT.2023+(1|Plot),data=dat)
+plot(mod.red)
+qqnorm(resid(mod.red));qqline(resid(mod.red))
+shapiro.test(resid(mod.red))
+anova(mod.red,ddf="Kenward-Roger")
+
+```
+
+```{r Resp comparisons for growing seasons}
+#### 2022 growing season ####
+str(dat.22) # 373 observations
+
+## Analysis
+gs.avs.22<-dat.22%>%
+  group_by(Plot,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+## ANOVA
+gs.22<-lm(log(season.av)~TRT.2022,data=gs.avs.22)
+shapiro.test(resid(gs.22)) # fine w/ log transformation
+qqnorm(resid(gs.22));qqline(resid(gs.22))
+plot(gs.22,1)
+leveneTest(log(season.av)~TRT.2022,data=gs.avs.22) # 0.487, fine
+
+Anova(gs.22,type=3) # significant
+pairs(emmeans(gs.22,pairwise~TRT.2022)) # p < 0.0001
+
+## T-test
+ggplot(gs.avs.22, aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(gs.avs.22$season.av[gs.avs.22$TRT.2022 == "amb"]) # fine
+shapiro.test(gs.avs.22$season.av[gs.avs.22$TRT.2022 == "wet"]) # fine
+
+t.test(season.av~TRT.2022,data=gs.avs.22) # p < 0.0001
+p.22.val<-"p < 0.0001 with Welch's t-test. t = -12.897, df = 12.641"
+
+## Plot
+gs.plot.avs.22<-gs.avs.22%>%
+  group_by(TRT.2022)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+fi.name<-"fig_exports/Efflux/No_Outliers/New/SGS_EW_2022_Efflux_gs.pdf"
+y.lab<-expression(paste(bold("Soil" ["resp"]* " (µmol CO"["2"]*" m"^"-2"*"s"^"-1"*")")))
+ylims=c(0,5.2)
+p.22.val
+p.val="p < 0.0001"
+text.y=3.5
+
+gs.22.plot<-ggplot(data=gs.plot.avs.22,aes(x=TRT.2022,y=av,color=TRT.2022,fill=TRT.2022))+
+  labs(title=expression(bold("2022")),y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=c("amb"="Amb.\nDrought","wet"="Exp.\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2022,color=TRT.2022),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=c("#F8D48C","#B3BEDE"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  scale_color_manual(name=NULL,
+                     values=c("#F4B942","#4059AD"))+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9))+
+  geom_text(data=subset(gs.plot.avs.22,TRT.2022=="amb"),
+            label=p.val,
+            x=1.5,y=text.y,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.22.plot
+
+# ggsave(gs.22.plot,filename=fi.name,height=3,width=3)
+
+#### 2023 growing season ####
+str(dat.23) # 338 observations
+
+## Analysis
+gs.avs.23<-dat.23%>%
+  group_by(Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+## ANOVA
+gs.23<-lm(season.av~TRT.2022*TRT.2023,data=gs.avs.23)
+plot(gs.23,1)
+qqnorm(resid(gs.23));qqline(resid(gs.23))
+
+shapiro.test(resid(gs.23)) # fine
+leveneTest(season.av~TRT.2022*TRT.2023,data=gs.avs.23) # fine
+
+Anova(gs.23,type=3) # interaction not significant
+pairs(emmeans(gs.23,pairwise~TRT.2022|TRT.2023)) # amb 2023 legacy is 0.2135, wet 2023 legacy is 0.0580
+
+p.23.amb<-"Emmeans pairwise p = 0.2135 (t ratio = -1.296, df = 16), interaction main effect n.s."
+p.23.wet<-"Emmeans pairwise p = 0.0580 (t ratio = -2.042, df = 16), interaction main effect n.s."
+
+gs.23.ni<-lm(season.av~TRT.2022+TRT.2023,data=gs.avs.23)
+shapiro.test(resid(gs.23.ni)) # fine
+Anova(gs.23.ni,type=3) # both significant (2023 0.066)
+pairs(emmeans(gs.23.ni,pairwise~TRT.2022)) # p = 0.0275 legacy effect across 2023 trts
+
+step(gs.23) # use no interaction model
+
+## T-test
+### wet 2023
+ggplot(subset(gs.avs.23,TRT.2023=="wet"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "amb" & 
+                                   gs.avs.23$TRT.2023=="wet"]) # fine
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "wet" & 
+                                   gs.avs.23$TRT.2023=="wet"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(gs.avs.23,TRT.2023=="wet")) # p = 0.1593
+
+### amb 2023
+ggplot(subset(gs.avs.23,TRT.2023=="amb"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "amb" & 
+                                   gs.avs.23$TRT.2023=="amb"]) # fine
+shapiro.test(gs.avs.23$season.av[gs.avs.23$TRT.2022 == "wet" & 
+                                   gs.avs.23$TRT.2023=="amb"]) # fine
+
+t.test(season.av ~ TRT.2022, data=subset(gs.avs.23,TRT.2023=="amb")) # p = 0.08311
+
+
+## Plot
+gs.plot.avs.23<-gs.avs.23%>%
+  group_by(TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+
+# fi.name<-"fig_exports/Efflux/No_Outliers/New/SGS_EW_2023_Efflux_gs.pdf"
+fi.name<-"fig_exports/Efflux/No_Outliers/New/SGS_EW_2023_Efflux_gs_ANOVA.pdf"
+y.lab<-expression(paste(bold("Soil" ["resp"]* " (µmol CO"["2"]*" m"^"-2"*"s"^"-1"*")")))
+ylims=c(0,5.2)
+
+# ANOVA emmeans
+p.23.amb
+p.val.amb="p = 0.2135"
+p.23.wet
+p.val.wet="p = 0.0580"
+
+# t-tests
+# p.val.amb="p = 0.0831"
+# p.val.wet="p = 0.1593"
+
+text.y.amb=3.5
+text.y.wet=3.75
+
+gs.23.plot<-ggplot(data=gs.plot.avs.23,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(~TRT.2023,scales="free")+
+  labs(title=expression(bold("2023")),y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2023),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   color="black"
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=c("#F4B942","#4059AD"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        strip.text.x=element_blank(),
+        # strip.text.x=element_text(size=10,
+        #                       hjust=0.15,
+        #                       vjust=-6.75,
+        #                       face="bold",
+        #                       colour="black")
+        )+
+  geom_text(data=subset(gs.plot.avs.23,
+                        TRT.2023=="amb" &
+                        TRT.2022 == "amb"),
+            label=p.val.amb,
+            x=1.5,y=text.y.amb,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.23,
+                        TRT.2023=="wet" & 
+                        TRT.2022=="amb"),
+            label=p.val.wet,
+            x=1.5,y=text.y.wet,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.23,
+                        TRT.2022=="amb"),
+            aes(label=TRT.2023,
+            x=0.75,y=4.8),
+            hjust=0,
+            color="black",
+            size=10/.pt,
+            fontface="bold",
+            inherit.aes=FALSE)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.23.plot
+
+# ggsave(gs.23.plot,filename=fi.name,height=3,width=3)
+```
+
+```{r Resp mid and late periods}
+#### 2022 ####
+str(dat.22) # 373 observations
+
+## Analysis
+periods.22<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))
+str(periods.22)
+
+#### <- full ANOVAs ####
+per.22<-lmer(sqrt(resp)~TRT.2022*period+(1|Plot/period),data=periods.22)
+plot(per.22)
+qqnorm(resid(per.22));qqline(resid(per.22))
+shapiro.test(resid(per.22)) # fails but graphically looks ok 
+leveneTest(sqrt(resp) ~ TRT.2022*period, data=periods.22) # ok w sqrt transformation
+
+anova(per.22,ddf="Kenward-Roger") # interaction not sig.
+pairs(emmeans(per.22,pairwise~TRT.2022|period)) # both p < 0.0001
+
+step(per.22,reduce.random=FALSE) # keep additive
+
+per.22.ni<-lmer(sqrt(resp)~TRT.2022+period+(1|Plot/period),data=periods.22)
+plot(per.22.ni)
+qqnorm(resid(per.22.ni));qqline(resid(per.22.ni))
+anova(per.22.ni,ddf="Kenward-Roger") # both significant
+pairs(emmeans(per.22.ni,pairwise~TRT.2022)) # p < 0.0001 across trts
+
+# check preferred mod
+anova(per.22,per.22.ni) # prefer reduced model
+
+
+#### <- averages ANOVAs & T-tests ####
+season.22.avs<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  group_by(Plot,period,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+season.22.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=season.22.avs)
+plot(season.22.avs.mod)
+qqnorm(resid(season.22.avs.mod));qqline(resid(season.22.avs.mod))
+anova(season.22.avs.mod,ddf="Kenward-Roger") # all significant
+pairs(emmeans(season.22.avs.mod,pairwise~TRT.2022|period)) 
+
+p.seas.22.early<-"Emmeans pairwise p < 0.0001 (t ratio -13.486, df = 21.3"
+p.seas.22.late<-"Emmeans pairwise p < 0.0001 (t ratio -11.542, df = 21.3"
+
+### early to mid period
+early.22.avs<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  filter(period == "early-mid")%>%
+  group_by(Plot,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+str(early.22.avs)
+
+## ANOVA
+early.22<-lm(season.av~TRT.2022,data=early.22.avs)
+shapiro.test(resid(early.22)) # fine
+leveneTest(season.av~TRT.2022,data=early.22.avs) # fine
+
+Anova(early.22,type=3) # significant
+
+## T-test
+ggplot(early.22.avs, aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(early.22.avs$season.av[early.22.avs$TRT.2022 == "amb"]) # fine
+shapiro.test(early.22.avs$season.av[early.22.avs$TRT.2022 == "wet"]) # fine
+
+t.test(season.av ~ TRT.2022, data = early.22.avs) # p < 0.0001
+
+### mid to late period
+late.22.avs<-dat.22%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2022-07-06") ~ "early-mid",
+    new.Date > ymd("2022-07-06") ~ "mid-late"))%>%
+  filter(period == "mid-late")%>%
+  group_by(Plot,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+str(late.22.avs)
+
+## ANOVA
+late.22<-lm(season.av~TRT.2022,data=late.22.avs)
+shapiro.test(resid(late.22)) # 0.019 - close enough
+leveneTest(season.av~TRT.2022,data=late.22.avs) # 0.06, fine
+
+Anova(late.22,type=3) # significant
+
+## T-test
+ggplot(late.22.avs, aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(late.22.avs$season.av[late.22.avs$TRT.2022 == "amb"]) # fine
+shapiro.test(late.22.avs$season.av[late.22.avs$TRT.2022 == "wet"]) # fine
+
+t.test(season.av ~ TRT.2022, data = late.22.avs) # p < 0.0001
+
+
+## Plot
+early.plot.avs<-early.22.avs%>%
+  group_by(TRT.2022)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots),
+    period = "early-mid")
+
+late.plot.avs<-late.22.avs%>%
+  group_by(TRT.2022)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots),
+    period = "mid-late")
+
+early.late.plot.avs<-rbind(early.plot.avs,late.plot.avs)
+
+# fi.name<-"fig_exports/Efflux/No_Outliers/New/SGS_EW_2022_Efflux_periods.pdf"
+fi.name<-"fig_exports/Efflux/No_Outliers/New/SGS_EW_2022_Efflux_periods_ANOVA.pdf"
+
+y.lab<-expression(paste(bold("Soil" ["resp"]* " (µmol CO"["2"]*" m"^"-2"*"s"^"-1"*")")))
+ylims=c(0,5.2)
+
+# t-tests
+p.val.early="p < 0.0001"
+p.val.late="p < 0.0001"
+
+# ANOVA emmeans
+p.seas.22.early
+p.seas.22.late # not different from p.vals above
+
+
+text.y.early=4
+text.y.late=3.3
+
+early.late.22.plot<-ggplot(data=early.late.plot.avs,aes(x=TRT.2022,y=av,color=TRT.2022,fill=TRT.2022))+
+  labs(title=expression(bold("2022")),y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=c("amb"="Amb.\nDrought","wet"="Exp.\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2022,color=TRT.2022),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=c("#F8D48C","#B3BEDE"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  scale_color_manual(name=NULL,
+                     values=c("#F4B942","#4059AD"))+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        strip.text.x=element_text(size=10))+
+  geom_text(data=subset(early.late.plot.avs,
+                        TRT.2022=="amb" & period =="early-mid"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(early.late.plot.avs,
+                        TRT.2022=="amb" & period =="mid-late"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  facet_wrap(~period)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+early.late.22.plot
+
+# ggsave(early.late.22.plot,filename=fi.name,height=3,width=3)
+
+#### 2023 ####
+str(dat.23) # 749 observations
+
+## Analysis
+periods.23<-dat.23%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2023-07-06") ~ "early-mid",
+    new.Date > ymd("2023-07-06") ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))
+str(periods.23)
+
+wet.23<-subset(periods.23,TRT.2023=="wet")
+amb.23<-subset(periods.23,TRT.2023=="amb")
+
+period.avs.23<-periods.23%>%
+  group_by(period,Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates= n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+wet.avs.23<-subset(period.avs.23,TRT.2023=="wet")
+amb.avs.23<-subset(period.avs.23,TRT.2023=="amb")
+
+#### full combined seasonal ANOVAs ####
+season.23.avs.mod<-lmer(season.av ~ period*TRT.2022*TRT.2023+(1|Plot),data=period.avs.23)
+plot(season.23.avs.mod)
+qqnorm(resid(season.23.avs.mod));qqline(resid(season.23.avs.mod))
+anova(season.23.avs.mod,ddf="Kenward-Roger") # three way interaction NOT significant
+pairs(emmeans(season.23.avs.mod,~TRT.2022|TRT.2023|period))
+
+p.seas.23.amb_early<-"Emmeans pairwise p = 0.7294 (t ratio = -0.350, df = 25.7), main effect of interaction n.s."
+p.seas.23.wet_early<-"Emmeans pairwise p = 0.3460 (t ratio = -0.960, df = 25.7), main effect of interaction n.s."
+p.seas.23.amb_late<-"Emmeans pairwise p = 0.0810 (t ratio = -1.817, df = 25.7), main effect of interaction n.s."
+p.seas.23.wet_late<-"Emmeans pairwise p = 0.0169 (t ratio = -2.555, df = 25.7), main effect of interaction n.s."
+
+step(season.23.avs.mod)
+
+season.23.avs.mod.red<-lmer(season.av ~ period + TRT.2022 + (1|Plot), data=period.avs.23)
+anova(season.23.avs.mod.red,ddf="Kenward-Roger")
+plot(season.23.avs.mod.red)
+qqnorm(resid(season.23.avs.mod.red));qqline(resid(season.23.avs.mod.red))
+
+#### <- wet 2023 ####
+## full ANOVAs
+wet.23.mod<-lmer(resp~period*TRT.2022+(1|Plot/period),data=wet.23)
+plot(wet.23.mod)
+qqnorm(resid(wet.23.mod));qqline(resid(wet.23.mod))
+anova(wet.23.mod,ddf="Kenward-Roger") # interaction not significant
+pairs(emmeans(wet.23.mod,pairwise~TRT.2022|period)) # early 0.49, late 0.066
+
+wet.23.mod.ni<-lmer(resp~period+TRT.2022+(1|Plot/period),data=wet.23)
+plot(wet.23.mod.ni)
+qqnorm(resid(wet.23.mod));qqline(resid(wet.23.mod))
+anova(wet.23.mod.ni,ddf="Kenward-Roger") # only period sig
+
+
+## seasonal ANOVAs
+wet.23.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=wet.avs.23)
+plot(wet.23.avs.mod)
+qqnorm(resid(wet.23.avs.mod));qqline(resid(wet.23.avs.mod))
+anova(wet.23.avs.mod,ddf="Kenward-Roger") # only period sig
+pairs(emmeans(wet.23.avs.mod,pairwise~TRT.2022|period)) # early 0.4342, late 0.0539
+
+wet.23.avs.mod.ni<-lmer(season.av~period+TRT.2022+(1|Plot),data=wet.avs.23)
+plot(wet.23.avs.mod.ni)
+qqnorm(resid(wet.23.avs.mod.ni));qqline(resid(wet.23.avs.mod.ni))
+anova(wet.23.avs.mod.ni,ddf="Kenward-Roger") # only period sig.
+
+## T-tests
+### early 
+ggplot(subset(wet.avs.23, period == "early-mid"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "amb" &
+                                    wet.avs.23$period == "early-mid"]) # fine
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "wet" & 
+                                    wet.avs.23$period == "early-mid"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(wet.avs.23,period=="early-mid")) # p = 0.327
+
+### late
+ggplot(subset(wet.avs.23, period == "mid-late"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "amb" &
+                                    wet.avs.23$period == "mid-late"]) # fine
+shapiro.test(wet.avs.23$season.av[wet.avs.23$TRT.2022 == "wet" & 
+                                    wet.avs.23$period == "mid-late"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(wet.avs.23,period=="mid-late")) # p = 0.1277
+
+#### <- amb 2023 ####
+## full ANOVAs
+amb.23.mod<-lmer(resp~period*TRT.2022+(1|Plot/period),data=amb.23)
+plot(amb.23.mod)
+qqnorm(resid(amb.23.mod));qqline(resid(amb.23.mod))
+anova(amb.23.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(amb.23.mod,pairwise~TRT.2022|period)) # early p = 0.6775, late p = 0.0350
+
+amb.23.mod.ni<-lmer(resp~period+TRT.2022+(1|Plot/period),data=amb.23)
+anova(amb.23.mod.ni,ddf="Kenward-Roger") # TRT.2022 p = 0.08 across periods
+pairs(emmeans(amb.23.mod.ni,pairwise~TRT.2022)) # 0.0833
+
+## seasonal ANOVAs
+amb.23.avs.mod<-lmer(season.av~period*TRT.2022+(1|Plot),data=amb.avs.23)
+plot(amb.23.avs.mod)
+qqnorm(resid(amb.23.avs.mod));qqline(resid(amb.23.avs.mod))
+anova(amb.23.avs.mod,ddf="Kenward-Roger") # drop interaction
+pairs(emmeans(amb.23.avs.mod,pairwise~TRT.2022|period)) # early p = 0.6582, late p = 0.0326
+
+amb.23.avs.mod.ni<-lmer(season.av~period+TRT.2022+(1|Plot),data=amb.avs.23)
+anova(amb.23.avs.mod.ni,ddf="Kenward-Roger") # TRT.2022 p = 0.0908
+pairs(emmeans(amb.23.avs.mod.ni,pairwise~TRT.2022)) # p = 0.0908
+
+## T-tests
+### early 
+ggplot(subset(amb.avs.23, period == "early-mid"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "amb" &
+                                    amb.avs.23$period == "early-mid"]) # fails
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "wet" & 
+                                    amb.avs.23$period == "early-mid"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(amb.avs.23,period=="early-mid")) # p = 0.7147
+wilcox.test(season.av ~ TRT.2022, data = subset(amb.avs.23,period=="early-mid")) # p = 0.5476
+
+### late
+ggplot(subset(amb.avs.23, period == "mid-late"), aes(x = season.av, fill = TRT.2022)) +
+  geom_density(alpha = 0.5)
+
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "amb" &
+                                    amb.avs.23$period == "mid-late"]) # fine
+shapiro.test(amb.avs.23$season.av[amb.avs.23$TRT.2022 == "wet" & 
+                                    amb.avs.23$period == "mid-late"]) # fine
+
+t.test(season.av ~ TRT.2022, data = subset(amb.avs.23,period=="mid-late")) # p = 0.0187
+
+## Plot
+periods.plot.avs.23<-period.avs.23%>%
+  group_by(period,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+wet.plot.avs.23<-subset(periods.plot.avs.23,TRT.2023=="wet")
+amb.plot.avs.23<-subset(periods.plot.avs.23,TRT.2023=="amb")
+  
+
+# wet current
+gr_dat<-wet.plot.avs.23
+# fi.name<-"fig_exports/Efflux/No_Outliers/New/SGS_EW_2023_Efflux_periods_wet-current.pdf"
+fi.name<-"fig_exports/Efflux/No_Outliers/New/SGS_EW_2023_Efflux_periods_wet-current_ANOVA.pdf"
+
+# p.val.early="p = 0.3270" # t-test p-val
+p.seas.23.wet_early
+p.val.early="p = 0.3460"
+text.y.early=4
+
+# p.val.late="p = 0.1277" # t-test p-val
+p.seas.23.wet_late
+p.val.late="p = 0.0169"
+text.y.late=3.6
+
+facet.labs=c("wet - early","wet - late")
+fill.col=c("#4059AD")
+
+# amb current
+gr_dat<-amb.plot.avs.23
+# fi.name<-"fig_exports/Efflux/No_Outliers/New/SGS_EW_2023_Efflux_periods_amb-current.pdf"
+fi.name<-"fig_exports/Efflux/No_Outliers/New/SGS_EW_2023_Efflux_periods_amb-current_ANOVA.pdf"
+
+# p.val.early="p = 0.7147" # t-test p-val
+p.seas.23.amb_early
+p.val.early="p = 0.7294"
+text.y.early=4
+
+# p.val.late="p = 0.0187" # t-test p-val
+p.seas.23.amb_late
+p.val.late="p = 0.0810"
+text.y.late=2.7
+
+facet.labs=c("amb - early","amb - late")
+fill.col=c("#F4B942")
+
+# keep on for both
+y.lab<-expression(paste(bold("Soil" ["resp"]*"\n(µmol CO"["2"]*" m"^"-2"*"s"^"-1"*")")))
+ylims=c(0,5.2)
+
+
+## Plot
+
+early.late.23.plot<-ggplot(data=gr_dat,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(factor(period, levels = c("early-mid","mid-late"),
+                     labels = facet.labs) ~.)+
+  labs(title=expression(bold("2023")),
+       y=y.lab,x=NULL)+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col_pattern(width=0.75,
+                   aes(pattern=TRT.2022,fill=TRT.2023),
+                   pattern_color="white",
+                   pattern_fill=NA,
+                   pattern_density=0.2,
+                   pattern_spacing=0.04,
+                   pattern_alpha=0.75,
+                   pattern_aspect_ratio=0.1,
+                   color="black"
+                   )+
+  scale_fill_manual(name=NULL,
+                    values=fill.col
+                    # values=c("#F4B942")
+                    )+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  geom_text(data=subset(gr_dat,period == "early-mid" & TRT.2022 == "amb"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gr_dat,period == "mid-late" & TRT.2022 == "amb"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        strip.text.x=element_text(size=10,
+                              hjust=0,
+                              # vjust=-6.75,
+                              # vjust=-0.8,
+                              face="bold",
+                              colour="black")
+        )+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+
+early.late.23.plot
+
+# ggsave(early.late.23.plot,filename=fi.name,height=3,width=3)
+```
+

@@ -1,0 +1,1652 @@
+---
+title: "MS Selected Plots - Nov 25"
+author: "Kathy Condon"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(knitr)
+library(tidyverse)
+library(dplyr)
+library(car)
+library(emmeans)
+library(multcomp)
+library(lmerTest)
+library(lme4)
+library(RColorBrewer)
+library(rstatix)
+library(tidyr)
+library(ggpubr)
+library(lubridate)
+library(ggtext)
+library(ggh4x)
+library(ggpattern)
+library(data.table)
+library(MuMIn)
+library(scales)
+library(performance)
+
+
+plot_theme<-theme_classic()+
+  theme(
+    strip.background=element_blank(),
+    strip.text.x=element_text(size=12,
+                              hjust=0,
+                              face="bold",colour="black"),
+    strip.text.y=element_text(size=12,
+                              hjust=0,
+                              face="bold",colour="black"),
+    panel.background=element_rect(fill="transparent"),
+    panel.border=element_rect(fill="transparent",color="black",
+                              linewidth=0.5),
+    plot.background=element_rect(fill="transparent",color=NA),
+    legend.background=element_rect(fill="transparent"),
+    legend.position="none",
+    # legend.title=element_text(size=16,face="bold"),
+    legend.text=element_text(size=12),
+    # axis.line.x=element_line(linewidth=1,color="black"),
+    axis.line.x=element_blank(),
+    axis.line.y=element_blank(),
+    axis.ticks=element_line(linewidth=0.5,color="black"),
+    axis.ticks.length=unit(-0.05,"in"),
+    axis.title = element_text(size=12,
+                              colour="black",face="bold"),
+    axis.text=element_text(size=10,colour="black"),
+    axis.text.x=element_text(angle=0,hjust=0.5,colour="black"),
+    axis.text.y=element_text(colour="black"),
+    plot.title=element_text(size=12),
+    strip.placement="outside")
+```
+
+## Fig. 1: Precip bars
+```{r Precip data}
+precip.dat<-read.csv(file="final_data/SGS_EW_Precipitation_Selected_v2.csv")
+str(precip.dat)
+
+## mutate needed columns
+daily.precip<-precip.dat%>%
+  mutate(new.Date=as.Date(Date,format="%m/%d/%y"))%>%
+  group_by(yr=year(new.Date),mon)%>%
+  rename(amb_tot=ambient_ppt_mm,added_tot=added_ppt_mm)%>%
+  mutate(amb_adj=if_else(amb_tot < 0.3, 0, amb_tot))%>%
+  mutate(added_adj=if_else(added_tot < 0.3, 0, added_tot))%>%
+  select(new.Date,yr,mon,growing_season,amb_tot,amb_adj,added_tot,added_adj,source)
+
+str(daily.precip)
+
+## calculate gs precip by month
+gs.monthly<-daily.precip%>%
+  group_by(yr,mon)%>%
+  filter(growing_season == "YES")%>%
+  dplyr::summarise(
+    n.days=n(),
+    gs_amb_sum=sum(amb_tot,na.rm=TRUE),
+    gs_amb_adj=sum(amb_adj,na.rm=TRUE),
+    gs_add_sum=sum(added_tot,na.rm=TRUE),
+    gs_add_adj=sum(added_adj,na.rm=TRUE))
+
+## calculate LTA gs monthly values
+gs.monthly.avs<-gs.monthly%>%
+  group_by(mon)%>%
+  dplyr::summarise(
+    n.yrs=n(),
+    month_gs_LTA=mean(gs_amb_sum),
+    month_gs_LTA_SE=(sd(gs_amb_sum)/sqrt(n.yrs)),
+    month_gs_LTA_adj=mean(gs_amb_adj),
+    month_gs_LTA_SE_adj=(sd(gs_amb_adj)/sqrt(n.yrs)))
+
+## combined gs monthly and LTA monthlys
+gs.to.comb<-gs.monthly%>%
+  pivot_longer(cols=c("gs_amb_sum","gs_add_sum","gs_amb_adj","gs_add_adj"),
+               names_to="amb_add",values_to="mm_precip")%>%
+  rename(n=n.days)%>%
+  mutate(SE=NA,
+         yr=as.factor(yr))
+  
+gs.LTA.to.comb<-gs.monthly.avs%>%
+  rename(mm_precip=month_gs_LTA,
+         SE=month_gs_LTA_SE,
+         n=n.yrs)
+
+gs.all.comb<-merge(gs.to.comb,gs.monthly.avs,by="mon")
+
+gs.gr.comb<-filter(gs.all.comb,yr %in% c("2022","2023","2024"))%>%
+  group_by(yr,amb_add)%>%
+  pivot_longer(cols=c(mm_precip,month_gs_LTA_adj),names_to="precip_groups2",values_to="precip_total")%>%
+  mutate(mon=factor(mon))
+
+view(gs.gr.comb)
+
+
+#### plotting monthly bars ####
+gr_dat<-gs.gr.comb%>%
+  filter(amb_add %in% c("gs_amb_adj","gs_add_adj","amb_LTA"))%>%
+  filter(!amb_add == "gs_add_adj")%>%
+  mutate(precip_groups2=factor(precip_groups2,levels=c("month_gs_LTA_adj","mm_precip")))%>%
+  mutate(SE = case_when(
+    precip_groups2 == "month_gs_LTA_adj" ~ month_gs_LTA_SE_adj,
+    precip_groups2 == "mm_precip" ~ SE))
+
+# gr_dat<-gr_dat%>%
+#   filter(mon %in% c(5:7))
+
+monthly.precip.bars<-ggplot(data=gr_dat,color=precip_groups2,group=precip_groups2,x=mon,y=precip_total)+
+  geom_bar(aes(x=mon,y=precip_total,fill=precip_groups2),
+           color="black",
+           width=0.85,
+           position=position_dodge(0.85),
+           stat="identity",
+           linewidth=0.25)+
+  geom_errorbar(aes(x=mon,ymin=precip_total-SE,ymax=precip_total+SE,group=precip_groups2),
+                position=position_dodge(0.85),
+                width=0.15,
+                linewidth=0.25,
+                color="black")+
+  labs(title=NULL,y=(expression(bold("Monthly precipitation (mm)"))),x=NULL)+
+  scale_y_continuous(limits=c(0,110),expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=c("4"="Apr","5"="May","6"="Jun","7"="July","8"="Aug","9"="Sep"))+
+  scale_fill_manual(name=NULL,
+                    values=c("gray70","#F4B942"),
+                    labels=c("LTA Total",
+                             "Ambient Total"))+
+  coord_cartesian(clip="off")+
+  theme_classic()+
+  plot_theme+
+  theme(
+    legend.position="inside",
+    legend.position.inside=c(0.76,0.85),
+    axis.ticks.x=element_blank(),
+    legend.text=element_text(size=8),
+    legend.key.size=unit(0.6,"lines"))+
+  guides(color=guide_legend(override.aes=list(size=2.5)))+
+  facet_wrap(~yr,ncol=3)+
+  force_panelsizes(rows=unit(1.5,"in"),
+                   cols=unit(2,"in"))
+
+monthly.precip.bars
+
+#### export monthly bars Apr-June ####
+# ggsave(monthly.precip.bars,filename="fig_exports/MS_Final_Plots/SGS_EW_Precip_April-Sept.pdf",height=8.5,width=11,units="in")
+
+#### Table Values ####
+str(daily.precip)
+
+## annual totals
+MAP<-daily.precip%>%
+  group_by(yr)%>%
+  dplyr::summarise(
+    n.days=n(),
+    MAP=sum(amb_adj,na.rm=TRUE),
+    MAP.add=sum(added_adj,na.rm=TRUE))
+
+MAP.21_24<-MAP%>%
+  filter(yr %in% c(2021:2024))
+
+LTA.MAP<-MAP%>%
+  dplyr::summarise(
+    n.yrs=n(),
+    LTA=mean(MAP),
+    LTA.SE=(sd(MAP))/sqrt(n.yrs))
+
+## growing season totals
+GSP<-daily.precip%>%
+  filter(growing_season=="YES")%>%
+  group_by(yr)%>%
+  dplyr::summarise(
+    n.days=n(),
+    GSP=sum(amb_adj,na.rm=TRUE),
+    GSP.add=sum(added_adj,na.rm=TRUE))
+
+GSP.21_24<-GSP%>%
+  filter(yr %in% c(2021:2024))
+
+LTA.GSP<-GSP%>%
+  dplyr::summarise(
+    n.yrs=n(),
+    LTA=mean(GSP),
+    LTA.SE=(sd(GSP))/sqrt(n.yrs))
+
+
+```
+
+
+## Fig. 2: VWC plots
+```{r VWC data}
+vwc.20<-read.csv("final_data/SGS_EW_20cm_VWC.csv")
+
+vwc.20.no.na<-vwc.20%>%
+  # set date formats
+  mutate(new.Date=as.Date(Full.Date,format="%m/%d/%y"),yr=year(new.Date),mon=month(new.Date))%>%
+  mutate(short.Date=paste("2024",mon,day(new.Date),sep="-"))%>%
+  mutate(short.Date=as.Date(short.Date,format="%Y-%m-%d"))%>%
+  # rename variables from original file
+  rename(TRT.2022=Trt_2022)%>%
+  mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
+  rename(TRT.2023=Trt_2023)%>%
+  mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
+  # select columns to keep
+  select(c(new.Date,short.Date,yr,mon,Plot,TRT.2022,TRT.2023,VWC,Notes))%>%
+  # drop rows with VWC NA's
+  drop_na(VWC)%>%
+  # create Unique_ID for dropping specific observations (outliers)
+  mutate(Unique_ID=paste(new.Date,"_Plot",Plot,sep=""))
+
+str(vwc.20) # 1900 observations
+str(vwc.20.no.na) # 1900 observations
+
+vwc.20cm.2024<-subset(vwc.20.no.na,yr=="2024")
+vwc.20cm.2023<-subset(vwc.20.no.na,yr=="2023")
+
+
+```
+
+### a) 2022 - across gs
+```{r 2022 VWC}
+# subset 2022 and remove outliers from daily analysis
+vwc.20cm.2022<-subset(vwc.20.no.na,yr=="2022")%>%
+  mutate(resp = VWC) # no outliers
+str(vwc.20cm.2022)
+
+# average for plotting
+gs.avs.22<-vwc.20cm.2022%>%
+  group_by(Plot,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+gs.plot.avs.22<-gs.avs.22%>%
+  group_by(TRT.2022)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+#### Fig 2a ####
+fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F2a_VWC.pdf"
+
+y.lab<-expression(paste(bold("20 cm Soil"["VWC"]*" (%)")))
+ylims=c(0,55)
+p.val="p < 0.0001"
+text.y=37
+
+gs.22.plot<-ggplot(data=gs.plot.avs.22,aes(x=TRT.2022,y=av,fill=TRT.2022))+
+  labs(title=expression(bold("2022")),y=y.lab,x=NULL,tag="")+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=c("amb"="D","wet"="Av"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col(width=0.75,color="black",position=position_dodge(0.75))+
+  scale_fill_manual(name=NULL,
+                    values=c("#F4B942","#4059AD"))+
+  scale_pattern_manual(values=c(NA,NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9))+
+  geom_text(data=subset(gs.plot.avs.22,TRT.2022=="amb"),
+            label=p.val,
+            x=1.5,y=text.y,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.22.plot
+
+#### **Export Fig 2a here** ####
+# ggsave(gs.22.plot,filename=fi.name,height=3,width=3)
+
+```
+
+### b) 2023 - early vs. late
+```{r 2023 VWC}
+# subset 2023 and remove outliers from daily analysis
+vwc.20cm.2023<-subset(vwc.20.no.na,yr=="2023")%>%
+  filter(!Unique_ID %in% c("2023-08-29_Plot3"))%>%
+  mutate(resp = VWC)
+str(vwc.20cm.2023)
+
+# averages for plotting
+period.avs.23<-vwc.20cm.2023%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2023-07-06") ~ "early-mid",
+    new.Date > ymd("2023-07-06") ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))%>%
+  group_by(period,Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates=n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+plot.period.avs<-period.avs.23%>%
+  group_by(period,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+wet.plot.avs.23<-subset(plot.period.avs,TRT.2023=="wet")
+amb.plot.avs.23<-subset(plot.period.avs,TRT.2023=="amb")
+
+#### Fig 2b - wet ####
+gr_dat<-wet.plot.avs.23
+fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F2b_VWC-WET.pdf"
+
+p.val.early="p = 0.0941"
+text.y.early=52
+
+p.val.late="p = 0.0033"
+text.y.late=42
+
+fill.col=c("#4059AD")
+x.labs=c("amb"=expression("D"%->%"W"),"wet"=expression("Av"%->%"W"))
+
+#### Fig 2b - amb ####
+# gr_dat<-amb.plot.avs.23
+# fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F2b_VWC-AV.pdf"
+# 
+# p.val.early="p = 0.0495"
+# text.y.early=50
+# 
+# p.val.late="p = 0.1086"
+# text.y.late=31
+# 
+# fill.col=c("#F4B942")
+# x.labs=c("amb"=expression("D"%->%"Av"),"wet"=expression("Av"%->%"Av"))
+
+#### Plot ####
+y.lab<-expression(paste(bold("20 cm Soil"["VWC"]*" (%)")))
+ylims=c(0,55)
+facet.labs=c("early to mid","mid to late")
+
+
+early.late.23.plot<-ggplot(data=gr_dat,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(factor(period, levels = c("early-mid","mid-late"),
+                     labels = facet.labs) ~.)+
+  labs(title=expression(bold("2023")),
+       y=y.lab,x=NULL,
+       # tag=p.val.early
+       )+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=x.labs,
+                   # expand=expansion(0.85)
+                   )+
+  # geom_col_pattern(width=0.75,
+  #                  aes(pattern=TRT.2022,fill=TRT.2023),
+  #                  pattern_color="white",
+  #                  pattern_fill=NA,
+  #                  pattern_density=0.2,
+  #                  pattern_spacing=0.04,
+  #                  pattern_alpha=0.75,
+  #                  pattern_aspect_ratio=0.1,
+  #                  color="black"
+  #                  )+
+  geom_col(width=0.75,color="black",position=position_dodge(0.75),fill=fill.col)+
+  # scale_fill_manual(name=NULL,
+  #                   values=fill.col
+  #                   # values=c("#F4B942")
+  #                   )+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        strip.text.x=element_text(size=10,
+                              hjust=0,
+                              # vjust=-6.75,
+                              # vjust=-0.8,
+                              face="bold",
+                              colour="black"),
+        # plot.tag.position=c(1,1),
+        # plot.tag=element_text(size=9,
+        #                       hjust=1,
+        #                       face="italic")
+        )+
+  geom_text(data=subset(gr_dat,period=="early-mid" & 
+                        TRT.2022=="amb"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gr_dat,period=="mid-late" & 
+                        TRT.2022=="amb"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+early.late.23.plot
+
+#### **Export Fig 2b here** ####
+# ggsave(early.late.23.plot,filename=fi.name,height=3,width=3)
+
+```
+
+### c) 2024 - across gs
+```{r 2024 VWC}
+# subset 2024 and remove outliers from daily analysis
+vwc.20cm.2024<-subset(vwc.20.no.na,yr=="2024")%>%
+  mutate(resp = VWC) # no outliers
+str(vwc.20cm.2024)
+
+# average for plotting
+gs.avs.24<-vwc.20cm.2024%>%
+  group_by(Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+gs.plot.avs.24<-gs.avs.24%>%
+  group_by(TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))%>%
+  mutate(TRT.22.23=paste(TRT.2022,TRT.2023,sep="_"))
+
+#### Fig 2a ####
+fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F2c_VWC.pdf"
+
+y.lab<-expression(paste(bold("20 cm Soil"["VWC"]*" (%)")))
+ylims=c(0,55)
+text.y.amb=30
+text.y.wet=32
+
+p.val.amb="p = 0.1972"
+p.val.wet="p = 0.0742"
+
+x.labs=c("amb_amb"=expression("D"%->%"Av"%->%"D"),"wet_amb"=expression("Av"%->%"Av"%->%"D"),"amb_wet"=expression("D"%->%"W"%->%"D"),"wet_wet"=expression("Av"%->%"W"%->%"D"))
+
+
+gs.24.plot<-ggplot(data=gs.plot.avs.24,aes(x=TRT.22.23,y=av))+
+  facet_wrap(~TRT.2023,scales="free")+
+  labs(title=expression(bold("2024")),y=y.lab,x=NULL,tag="")+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=x.labs,
+                   # expand=expansion(0.85)
+                   )+
+  # geom_col_pattern(width=0.75,
+  #                  aes(pattern=TRT.2022,fill=TRT.2023),
+  #                  pattern_color="white",
+  #                  pattern_fill=NA,
+  #                  pattern_density=0.2,
+  #                  pattern_spacing=0.04,
+  #                  pattern_alpha=0.75,
+  #                  pattern_aspect_ratio=0.1,
+  #                  color="black"
+  #                  )+
+  geom_col(width=0.75,color="black",fill="#F4B942",position=position_dodge(0.75))+
+  # scale_fill_manual(name=NULL,
+  #                   values=c("#F4B942","#F4B942"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        strip.text.x=element_blank(),
+        # strip.text.x=element_text(size=10,
+        #                       hjust=0.15,
+        #                       vjust=-6.75,
+        #                       face="bold",
+        #                       colour="black")
+        )+
+  geom_text(data=subset(gs.plot.avs.24,
+                        TRT.2023=="amb" &
+                        TRT.2022 == "amb"),
+            label=p.val.amb,
+            x=1.5,y=text.y.amb,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.24,
+                        TRT.2023=="wet" & 
+                        TRT.2022=="amb"),
+            label=p.val.wet,
+            x=1.5,y=text.y.wet,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.24.plot
+
+#### **Export Fig 2a here** ####
+# ggsave(gs.24.plot,filename=fi.name,height=3,width=3)
+```
+
+### Supplemental: 2022-2024 line graphs
+```{r VWC lines}
+#### combined outlier removed data and organize ####
+str(vwc.20cm.2022)
+str(vwc.20cm.2023)
+str(vwc.20cm.2024)
+
+vwc.no.out<-rbind(vwc.20cm.2022,vwc.20cm.2023,vwc.20cm.2024)
+str(vwc.no.out)
+
+vwc.daily.avs<-vwc.no.out%>%
+  mutate(new.Date=as.Date(new.Date,format="%Y-%m-%d"))%>%
+  mutate(short.Date=as.Date(short.Date,format="%Y-%m-%d"))%>%
+  mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
+  mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
+  mutate(full.TRT=paste(TRT.2022,TRT.2023,sep="-"))%>%
+  mutate(full.TRT=factor(full.TRT,levels=c("amb-NA","wet-NA","amb-amb","wet-amb","amb-wet","wet-wet")))%>%
+    mutate(mon.lab=fct_recode(as.factor(mon),
+                               "May"="5",
+                               "Jun"="6",
+                               "Jul"="7",
+                               "Aug"="8",
+                               "Sep"="9"))%>%
+  group_by(yr,mon,new.Date,short.Date,TRT.2022,TRT.2023,full.TRT)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av=mean(VWC,na.rm=TRUE),
+    sd=sd(VWC,na.rm=TRUE),
+    SE=sd/sqrt(n.plots),
+    plots.included=sum(!is.na(VWC)))
+
+str(vwc.daily.avs)
+
+#### plot ####
+gr_dat<-vwc.daily.avs
+y.lab<-expression(paste(bold("20cm Soil"["VWC"]*" (%)")))
+fi.name<-"fig_exports/MS_Final_Plots/SGS_EW_FigS2_VWC-lines.pdf"
+
+daily.three.yrs<-ggplot(aes(x=short.Date,y=av),data=gr_dat)+
+  labs(title=NULL,x="",y=y.lab)+
+  facet_wrap(~yr,ncol=3,scales="free")+
+  scale_x_date(limits=as.Date(c("2024-04-28","2024-09-25")),date_labels="%b",
+               sec.axis=dup_axis(labels=NULL),expand=c(0,0),
+               guide=guide_axis(angle=45))+
+  scale_y_continuous(limits=c(0,55),sec.axis=dup_axis(labels=NULL,name=NULL),expand=c(0,0))+
+  coord_cartesian(expand=FALSE,clip="off")+
+  theme_classic()+
+  plot_theme+
+
+  
+  # 2022 ambient
+  geom_line(data=subset(gr_dat,yr==2022 & TRT.2022 == "amb"),
+            color="#F8D48C",linetype="dashed",linewidth=0.25)+
+  geom_errorbar(data=subset(gr_dat,yr==2022 & TRT.2022 == "amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F4B942",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2022 & TRT.2022 == "amb"),
+             color="#F4B942",shape=21,fill="white",size=1)+
+  
+  # 2022 wet
+  geom_line(data=subset(gr_dat,yr==2022 & TRT.2022 == "wet"),
+            color="#8A99CD",linetype="solid",linewidth=0.25)+
+  geom_errorbar(data=subset(gr_dat,yr==2022 & TRT.2022 == "wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#4059AD",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2022 & TRT.2022 == "wet"),
+             color="#4059AD",shape=21,fill="#8A99CD",size=1)+
+  
+  # wet - amb
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+            color="#F4B942",linetype="solid",linewidth=0.25,alpha=0.5)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F4B942",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+             color="#F4B942",shape=21,fill="#F4B942",size=1)+
+  
+  # amb - wet
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+            color="#8A99CD",linetype="dashed",linewidth=0.25,alpha=0.5)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#8A99CD",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+             color="#8A99CD",shape=21,fill="white",size=1)+
+  
+  # amb - amb
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+            color="#F8D48C",linetype="dashed",linewidth=0.25)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F8D48C",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+             color="#F8D48C",shape=21,fill="white",size=1)+
+  
+  # wet - wet
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+            color="#4059AD",linetype="solid",linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+             color="#4059AD",shape=21,fill="#4059AD",size=1)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#4059AD",width=0.5,linewidth=0.25)+
+  
+  # 2024 wet - amb
+  geom_line(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+            color="#F4B942",linetype="solid",linewidth=0.25,alpha=0.5)+
+  geom_errorbar(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F4B942",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+             color="#F4B942",shape=21,fill="#F4B942",size=1)+
+  
+  # 2024 amb - wet
+  geom_line(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+            color="#8A99CD",linetype="dashed",linewidth=0.25,alpha=0.5)+
+  geom_errorbar(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#8A99CD",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+             color="#8A99CD",shape=21,fill="white",size=1)+
+  
+  # 2024 amb - amb
+  geom_line(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+            color="#F8D48C",linetype="dashed",linewidth=0.25)+
+  geom_errorbar(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F8D48C",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+             color="#F8D48C",shape=21,fill="white",size=1)+
+  
+  # 2024 wet - wet
+  geom_line(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+            color="#4059AD",linetype="solid",linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+             color="#4059AD",shape=21,fill="#4059AD",size=1)+
+  geom_errorbar(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#4059AD",width=0.5,linewidth=0.25)+
+  
+
+  force_panelsizes(rows = unit(1.25, "in"),
+                   cols = unit(2.25, "in"))
+  
+
+daily.three.yrs
+
+#### **Export Fig S2 here** ####
+# ggsave(daily.three.yrs,filename=fi.name,height=3,width=9)
+
+```
+
+## Fig. 3: GCC plots
+```{r GCC data}
+gcc<-read.csv("final_data/SGS_EW_GCC_2022-2024.csv")
+str(gcc)
+
+gcc.no.na<-gcc%>%
+  # set date formats
+  mutate(new.Date=as.Date(Date,format="%m/%d/%y"),yr=year(new.Date),mon=month(new.Date))%>%
+  mutate(short.Date=paste("2024",mon,day(new.Date),sep="-"))%>%
+  mutate(short.Date=as.Date(short.Date,format="%Y-%m-%d"))%>%
+  # rename variables from original file
+  rename(TRT.2022=TRT_2022)%>%
+  mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
+  rename(TRT.2023=TRT_2023)%>%
+  mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
+  # select columns to keep
+  rename(Notes=Notes.)%>%
+  select(c(new.Date,short.Date,yr,mon,Plot,TRT.2022,TRT.2023,GCC,Notes))%>%
+  # drop rows with VWC NA's
+  drop_na(GCC)%>%
+  # create Unique_ID for dropping specific observations (outliers)
+  mutate(Unique_ID=paste(new.Date,"_Plot",Plot,sep=""))
+
+str(gcc) # 1880 observations
+str(gcc.no.na) # 1870 observations
+```
+
+### d) 2022 - across gs
+```{r GCC 2022}
+# subset 2022 and remove outliers from daily analysis
+gcc.2022<-subset(gcc.no.na,yr=="2022")%>%
+  filter(!Unique_ID %in% c("2022-08-11_Plot9"))%>% # remove outliers 
+  mutate(resp = GCC) 
+str(gcc.2022)
+
+# average for plotting
+gs.avs.22<-gcc.2022%>%
+  group_by(Plot,TRT.2022)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+gs.plot.avs.22<-gs.avs.22%>%
+  group_by(TRT.2022)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+#### Fig 2a ####
+fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F3d_GCC-22.pdf"
+
+y.lab<-expression(paste(bold("Greenness (GCC)")))
+ylims=c(0.33,0.375)
+p.val="p < 0.0001"
+text.y=0.355
+
+gs.22.plot<-ggplot(data=gs.plot.avs.22,aes(x=TRT.2022,y=av,fill=TRT.2022))+
+  labs(title=expression(bold("2022")),y=y.lab,x=NULL,tag="")+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=c("amb"="D","wet"="Av"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col(width=0.75,color="black",position=position_dodge(0.75))+
+  scale_fill_manual(name=NULL,
+                    values=c("#F4B942","#4059AD"))+
+  scale_pattern_manual(values=c(NA,NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9))+
+  geom_text(data=subset(gs.plot.avs.22,TRT.2022=="amb"),
+            label=p.val,
+            x=1.5,y=text.y,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.22.plot
+
+#### **Export Fig 2a here** ####
+# ggsave(gs.22.plot,filename=fi.name,height=3,width=3)
+```
+
+### e) 2023 - early vs. late
+```{r 2023 VWC}
+# subset 2023 and remove outliers from daily analysis
+gcc.2023<-subset(gcc.no.na,yr=="2023")%>%
+  filter(!Unique_ID %in% c(
+    "2023-06-28_Plot2",
+  "2023-07-11_Plot2",
+  "2023-07-11_Plot12",
+  "2023-06-28_Plot12",
+  "2023-07-04_Plot2",
+  "2023-07-04_Plot12",
+  "2023-07-18_Plot2"
+  ))%>%
+  mutate(resp = GCC)
+str(gcc.2023)
+
+# averages for plotting
+period.avs.23<-gcc.2023%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2023-07-06") ~ "early-mid",
+    new.Date > ymd("2023-07-06") ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))%>%
+  group_by(period,Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates=n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+plot.period.avs<-period.avs.23%>%
+  group_by(period,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+wet.plot.avs.23<-subset(plot.period.avs,TRT.2023=="wet")
+amb.plot.avs.23<-subset(plot.period.avs,TRT.2023=="amb")
+
+#### Fig 3e - wet ####
+# gr_dat<-wet.plot.avs.23
+# fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F3e_GCC-WET.pdf"
+# 
+# p.val.early="p < 0.0001"
+# text.y.early=0.373
+# 
+# p.val.late="p = 0.0582"
+# text.y.late=0.37
+# 
+# fill.col=c("#4059AD")
+# x.labs=c("amb"=expression("D"%->%"W"),"wet"=expression("Av"%->%"W"))
+
+#### Fig 3e - amb ####
+gr_dat<-amb.plot.avs.23
+fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F3e_GCC-AV.pdf"
+
+p.val.early="p = 0.0132"
+text.y.early=0.37
+
+p.val.late="p = 0.4898"
+text.y.late=0.3515
+
+fill.col=c("#F4B942")
+x.labs=c("amb"=expression("D"%->%"Av"),"wet"=expression("Av"%->%"Av"))
+
+#### Plot ####
+y.lab<-expression(paste(bold("Greenness (GCC)")))
+ylims=c(0.33,0.375)
+facet.labs=c("early to mid","mid to late")
+
+
+early.late.23.plot<-ggplot(data=gr_dat,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(factor(period, levels = c("early-mid","mid-late"),
+                     labels = facet.labs) ~.)+
+  labs(title=expression(bold("2023")),
+       y=y.lab,x=NULL,
+       # tag=p.val.early
+       )+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=x.labs,
+                   # expand=expansion(0.85)
+                   )+
+  # geom_col_pattern(width=0.75,
+  #                  aes(pattern=TRT.2022,fill=TRT.2023),
+  #                  pattern_color="white",
+  #                  pattern_fill=NA,
+  #                  pattern_density=0.2,
+  #                  pattern_spacing=0.04,
+  #                  pattern_alpha=0.75,
+  #                  pattern_aspect_ratio=0.1,
+  #                  color="black"
+  #                  )+
+  geom_col(width=0.75,color="black",position=position_dodge(0.75),fill=fill.col)+
+  # scale_fill_manual(name=NULL,
+  #                   values=fill.col
+  #                   # values=c("#F4B942")
+  #                   )+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        strip.text.x=element_text(size=10,
+                              hjust=0,
+                              # vjust=-6.75,
+                              # vjust=-0.8,
+                              face="bold",
+                              colour="black"),
+        # plot.tag.position=c(1,1),
+        # plot.tag=element_text(size=9,
+        #                       hjust=1,
+        #                       face="italic")
+        )+
+  geom_text(data=subset(gr_dat,period=="early-mid" & 
+                        TRT.2022=="amb"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gr_dat,period=="mid-late" & 
+                        TRT.2022=="amb"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+early.late.23.plot
+
+#### **Export Fig 3e here** ####
+# ggsave(early.late.23.plot,filename=fi.name,height=3,width=3)
+
+```
+
+### f) 2024 - across gs
+```{r 2024 GCC}
+# subset 2024 and remove outliers from daily analysis
+gcc.2024<-subset(gcc.no.na,yr=="2024")%>%
+  mutate(resp = GCC) # no outliers
+str(gcc.2024)
+
+# average for plotting
+gs.avs.24<-gcc.2024%>%
+  group_by(Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates = n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+gs.plot.avs.24<-gs.avs.24%>%
+  group_by(TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))%>%
+  mutate(TRT.22.23=paste(TRT.2022,TRT.2023,sep="_"))
+
+#### Fig 3f ####
+fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F3f_GCC.pdf"
+
+y.lab<-expression(paste(bold("Greenness (GCC)")))
+ylims=c(0.33,0.375)
+text.y.amb=0.34
+text.y.wet=0.34
+
+p.val.amb="p = 0.5884"
+p.val.wet="p = 0.9227"
+
+x.labs=c("amb_amb"=expression("D"%->%"Av"%->%"D"),"wet_amb"=expression("Av"%->%"Av"%->%"D"),"amb_wet"=expression("D"%->%"W"%->%"D"),"wet_wet"=expression("Av"%->%"W"%->%"D"))
+
+
+gs.24.plot<-ggplot(data=gs.plot.avs.24,aes(x=TRT.22.23,y=av))+
+  facet_wrap(~TRT.2023,scales="free")+
+  labs(title=expression(bold("2024")),y=y.lab,x=NULL,tag="")+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=x.labs,
+                   # expand=expansion(0.85)
+                   )+
+  # geom_col_pattern(width=0.75,
+  #                  aes(pattern=TRT.2022,fill=TRT.2023),
+  #                  pattern_color="white",
+  #                  pattern_fill=NA,
+  #                  pattern_density=0.2,
+  #                  pattern_spacing=0.04,
+  #                  pattern_alpha=0.75,
+  #                  pattern_aspect_ratio=0.1,
+  #                  color="black"
+  #                  )+
+  geom_col(width=0.75,color="black",fill="#F4B942",position=position_dodge(0.75))+
+  # scale_fill_manual(name=NULL,
+  #                   values=c("#F4B942","#F4B942"))+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        strip.text.x=element_blank(),
+        # strip.text.x=element_text(size=10,
+        #                       hjust=0.15,
+        #                       vjust=-6.75,
+        #                       face="bold",
+        #                       colour="black")
+        )+
+  geom_text(data=subset(gs.plot.avs.24,
+                        TRT.2023=="amb" &
+                        TRT.2022 == "amb"),
+            label=p.val.amb,
+            x=1.5,y=text.y.amb,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gs.plot.avs.24,
+                        TRT.2023=="wet" & 
+                        TRT.2022=="amb"),
+            label=p.val.wet,
+            x=1.5,y=text.y.wet,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+gs.24.plot
+
+#### **Export Fig 2a here** ####
+# ggsave(gs.24.plot,filename=fi.name,height=3,width=3)
+```
+
+### a-c) 2022-2024 line graphs
+```{r GCC lines}
+#### combined outlier removed data and organize ####
+str(gcc.2022)
+str(gcc.2023)
+str(gcc.2024)
+
+gcc.no.out<-rbind(gcc.2022,gcc.2023,gcc.2024)
+str(gcc.no.out)
+
+gcc.daily.avs<-gcc.no.out%>%
+  mutate(new.Date=as.Date(new.Date,format="%Y-%m-%d"))%>%
+  mutate(short.Date=as.Date(short.Date,format="%Y-%m-%d"))%>%
+  mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
+  mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
+  mutate(full.TRT=paste(TRT.2022,TRT.2023,sep="-"))%>%
+  mutate(full.TRT=factor(full.TRT,levels=c("amb-NA","wet-NA","amb-amb","wet-amb","amb-wet","wet-wet")))%>%
+    mutate(mon.lab=fct_recode(as.factor(mon),
+                               "May"="5",
+                               "Jun"="6",
+                               "Jul"="7",
+                               "Aug"="8",
+                               "Sep"="9"))%>%
+  group_by(yr,mon,new.Date,short.Date,TRT.2022,TRT.2023,full.TRT)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av=mean(GCC,na.rm=TRUE),
+    sd=sd(GCC,na.rm=TRUE),
+    SE=sd/sqrt(n.plots),
+    plots.included=sum(!is.na(GCC)))
+
+str(gcc.daily.avs)
+
+#### plot ####
+gr_dat<-gcc.daily.avs
+y.lab<-expression(paste(bold("Canopy Greenness (GCC)")))
+fi.name<-"fig_exports/MS_Final_Plots/SGS_EW_Fig3_GCC-lines.pdf"
+
+daily.three.yrs<-ggplot(aes(x=short.Date,y=av),data=gr_dat)+
+  labs(title=NULL,x="",y=y.lab)+
+  facet_wrap(~yr,ncol=3,scales="free")+
+  scale_x_date(limits=as.Date(c("2024-04-24","2024-09-25")),date_labels="%b",
+               sec.axis=dup_axis(labels=NULL),expand=c(0,0),
+               guide=guide_axis(angle=45))+
+  scale_y_continuous(limits=c(0.3,0.42),sec.axis=dup_axis(labels=NULL,name=NULL),expand=c(0,0))+
+  coord_cartesian(expand=FALSE,clip="off")+
+  theme_classic()+
+  plot_theme+
+   # add vertical line
+  geom_vline(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 == "wet"),
+             aes(xintercept=as.Date("2024-07-06")),
+             color="gray75",linetype="dashed",linewidth=0.5)+
+  
+  
+  # 2022 ambient
+  geom_line(data=subset(gr_dat,yr==2022 & TRT.2022 == "amb"),
+            color="#F8D48C",linetype="dashed",linewidth=0.25)+
+  geom_errorbar(data=subset(gr_dat,yr==2022 & TRT.2022 == "amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F4B942",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2022 & TRT.2022 == "amb"),
+             color="#F4B942",shape=21,fill="white",size=1)+
+  
+  # 2022 wet
+  geom_line(data=subset(gr_dat,yr==2022 & TRT.2022 == "wet"),
+            color="#8A99CD",linetype="solid",linewidth=0.25)+
+  geom_errorbar(data=subset(gr_dat,yr==2022 & TRT.2022 == "wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#4059AD",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2022 & TRT.2022 == "wet"),
+             color="#4059AD",shape=21,fill="#8A99CD",size=1)+
+  
+  # wet - amb
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+            color="#F4B942",linetype="solid",linewidth=0.25,alpha=0.5)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F4B942",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+             color="#F4B942",shape=21,fill="#F4B942",size=1)+
+  
+  # amb - wet
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+            color="#8A99CD",linetype="dashed",linewidth=0.25,alpha=0.5)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#8A99CD",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+             color="#8A99CD",shape=21,fill="white",size=1)+
+  
+  # amb - amb
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+            color="#F8D48C",linetype="dashed",linewidth=0.25)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F8D48C",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+             color="#F8D48C",shape=21,fill="white",size=1)+
+  
+  # wet - wet
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+            color="#4059AD",linetype="solid",linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+             color="#4059AD",shape=21,fill="#4059AD",size=1)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#4059AD",width=0.5,linewidth=0.25)+
+  
+  # 2024 wet - amb
+  geom_line(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+            color="#F4B942",linetype="solid",linewidth=0.25,alpha=0.5)+
+  geom_errorbar(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F4B942",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+             color="#F4B942",shape=21,fill="#F4B942",size=1)+
+  
+  # 2024 amb - wet
+  geom_line(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+            color="#8A99CD",linetype="dashed",linewidth=0.25,alpha=0.5)+
+  geom_errorbar(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#8A99CD",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+             color="#8A99CD",shape=21,fill="white",size=1)+
+  
+  # 2024 amb - amb
+  geom_line(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+            color="#F8D48C",linetype="dashed",linewidth=0.25)+
+  geom_errorbar(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F8D48C",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2024 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+             color="#F8D48C",shape=21,fill="white",size=1)+
+  
+  # 2024 wet - wet
+  geom_line(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+            color="#4059AD",linetype="solid",linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+             color="#4059AD",shape=21,fill="#4059AD",size=1)+
+  geom_errorbar(data=subset(gr_dat,yr==2024 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#4059AD",width=0.5,linewidth=0.25)+
+ 
+  # set size for each panel
+  force_panelsizes(rows = unit(1.25, "in"),
+                   cols = unit(2.25, "in"))
+  
+
+daily.three.yrs
+
+#### **Export Fig 3a-c here** ####
+# ggsave(daily.three.yrs,filename=fi.name,height=3,width=9)
+
+```
+
+
+## Fig. 4: ANPP plots
+### a) 2022 ANPP - end-season only
+```{r 2022 ANPP}
+
+
+
+```
+
+### b) 2023 ANPP - mid and end-season
+```{r 2023 ANPP}
+
+
+```
+
+### c) 2024 ANPP - end-season only
+```{r 2024 ANPP}
+
+
+```
+
+
+## Fig. 5a) Soil respiration - early vs. late
+```{r Respiration data}
+resp<-read.csv("final_data/SGS_EW_Efflux_2022-2023.csv")
+str(resp)
+
+resp[resp=="ambient"]<-"amb"
+
+resp.no.na<-resp%>%
+  # set date formats
+  mutate(new.Date=as.Date(Full.Date,format="%m/%d/%y"),yr=year(new.Date),mon=month(new.Date))%>%
+  mutate(short.Date=paste("2024",mon,day(new.Date),sep="-"))%>%
+  mutate(short.Date=as.Date(short.Date,format="%Y-%m-%d"))%>%
+  # rename variables from original file
+  rename(TRT.2022=TRT_2022)%>%
+  mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
+  rename(TRT.2023=TRT_2023)%>%
+  mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
+  # select columns to keep
+  select(c(new.Date,short.Date,yr,mon,Plot,TRT.2022,TRT.2023,Soil.temp,Efflux,Notes))%>%
+  # drop rows with VWC NA's
+  drop_na(Efflux)%>%
+  # create Unique_ID for dropping specific observations (outliers)
+  mutate(Unique_ID=paste(new.Date,"_Plot",Plot,sep=""))
+
+str(resp) # 721 observations
+str(resp.no.na) # 712 observations
+```
+
+```{r 2023 Respiration}
+# subset 2023 and remove outliers from daily analysis
+resp.2023<-subset(resp.no.na,yr=="2023")%>%
+  filter(!Unique_ID %in% c("2023-06-28_Plot35"))%>%
+  mutate(resp = Efflux)
+str(resp.2023)
+
+# averages for plotting
+period.avs.23<-resp.2023%>%
+  mutate(period=case_when(
+    new.Date <= ymd("2023-07-06") ~ "early-mid",
+    new.Date > ymd("2023-07-06") ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))%>%
+  group_by(period,Plot,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.samp.dates=n(),
+    season.av = mean(resp),
+    season.sd = sd(resp),
+    season.SE = season.sd/sqrt(n.samp.dates))
+
+plot.period.avs<-period.avs.23%>%
+  group_by(period,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(season.av),
+    sd = sd(season.av),
+    SE = sd/sqrt(n.plots))
+
+wet.plot.avs.23<-subset(plot.period.avs,TRT.2023=="wet")
+amb.plot.avs.23<-subset(plot.period.avs,TRT.2023=="amb")
+
+#### Fig 5a - wet ####
+gr_dat<-wet.plot.avs.23
+fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F5a_Resp-WET.pdf"
+
+p.val.early="p = 0.3460"
+text.y.early=4
+
+p.val.late="p = 0.0169"
+text.y.late=3.6
+
+fill.col=c("#4059AD")
+x.labs=c("amb"=expression("D"%->%"W"),"wet"=expression("Av"%->%"W"))
+
+#### Fig 5a - amb ####
+# gr_dat<-amb.plot.avs.23
+# fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F5a_Resp-AV.pdf"
+# 
+# p.val.early="p = 0.7294"
+# text.y.early=4
+# 
+# p.val.late="p = 0.0810"
+# text.y.late=2.7
+# 
+# fill.col=c("#F4B942")
+# x.labs=c("amb"=expression("D"%->%"Av"),"wet"=expression("Av"%->%"Av"))
+
+#### Plot ####
+y.lab<-expression(bold(atop("Soil"["resp"],paste("(µmol CO"["2"]*" m"^"-2"*"s"^"-1"*")"))))
+ylims=c(0,5.2)
+facet.labs=c("early to mid","mid to late")
+
+
+early.late.23.plot<-ggplot(data=gr_dat,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(factor(period, levels = c("early-mid","mid-late"),
+                     labels = facet.labs) ~.)+
+  labs(title=expression(bold("2023")),
+       y=y.lab,x=NULL,
+       # tag=p.val.early
+       )+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=x.labs,
+                   # expand=expansion(0.85)
+                   )+
+  # geom_col_pattern(width=0.75,
+  #                  aes(pattern=TRT.2022,fill=TRT.2023),
+  #                  pattern_color="white",
+  #                  pattern_fill=NA,
+  #                  pattern_density=0.2,
+  #                  pattern_spacing=0.04,
+  #                  pattern_alpha=0.75,
+  #                  pattern_aspect_ratio=0.1,
+  #                  color="black"
+  #                  )+
+  geom_col(width=0.75,color="black",position=position_dodge(0.75),fill=fill.col)+
+  # scale_fill_manual(name=NULL,
+  #                   values=fill.col
+  #                   # values=c("#F4B942")
+  #                   )+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        strip.text.x=element_text(size=10,
+                              hjust=0,
+                              # vjust=-6.75,
+                              # vjust=-0.8,
+                              face="bold",
+                              colour="black"),
+        # plot.tag.position=c(1,1),
+        # plot.tag=element_text(size=9,
+        #                       hjust=1,
+        #                       face="italic")
+        )+
+  geom_text(data=subset(gr_dat,period=="early-mid" & 
+                        TRT.2022=="amb"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gr_dat,period=="mid-late" & 
+                        TRT.2022=="amb"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+early.late.23.plot
+
+#### **Export Fig 5a here** ####
+# ggsave(early.late.23.plot,filename=fi.name,height=3,width=3)
+
+```
+
+### Fg. S3 Respiration lines 
+```{r Respiration lines}
+#### combined outlier removed data and organize ####
+resp.2022<-resp.no.na%>%
+  filter(yr=="2022")%>%
+  mutate(resp=Efflux)
+str(resp.2022)
+str(resp.2023)
+
+resp.no.out<-rbind(resp.2022,resp.2023)
+str(resp.no.out)
+
+resp.daily.avs<-resp.no.out%>%
+  mutate(new.Date=as.Date(new.Date,format="%Y-%m-%d"))%>%
+  mutate(short.Date=as.Date(short.Date,format="%Y-%m-%d"))%>%
+  mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
+  mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
+  mutate(full.TRT=paste(TRT.2022,TRT.2023,sep="-"))%>%
+  mutate(full.TRT=factor(full.TRT,levels=c("amb-NA","wet-NA","amb-amb","wet-amb","amb-wet","wet-wet")))%>%
+    mutate(mon.lab=fct_recode(as.factor(mon),
+                               "May"="5",
+                               "Jun"="6",
+                               "Jul"="7",
+                               "Aug"="8",
+                               "Sep"="9"))%>%
+  group_by(yr,mon,new.Date,short.Date,TRT.2022,TRT.2023,full.TRT)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av=mean(Efflux,na.rm=TRUE),
+    sd=sd(Efflux,na.rm=TRUE),
+    SE=sd/sqrt(n.plots),
+    plots.included=sum(!is.na(Efflux)))
+
+str(resp.daily.avs)
+
+#### plot ####
+gr_dat<-resp.daily.avs
+y.lab<-expression(bold(atop("Soil"["resp"],paste("(µmol CO"["2"]*" m"^"-2"*"s"^"-1"*")"))))
+ylims=c(0,5.2)
+fi.name<-"fig_exports/MS_Final_Plots/SGS_EW_FigS3_Respiration-lines.pdf"
+
+daily.three.yrs<-ggplot(aes(x=short.Date,y=av),data=gr_dat)+
+  labs(title=NULL,x="",y=y.lab)+
+  facet_wrap(~yr,ncol=3,scales="free")+
+  scale_x_date(limits=as.Date(c("2024-04-24","2024-09-25")),date_labels="%b",
+               sec.axis=dup_axis(labels=NULL),expand=c(0,0),
+               guide=guide_axis(angle=45))+
+  scale_y_continuous(limits=ylims,sec.axis=dup_axis(labels=NULL,name=NULL),expand=c(0,0))+
+  coord_cartesian(expand=FALSE,clip="off")+
+  theme_classic()+
+  plot_theme+
+ 
+  # 2022 ambient
+  geom_line(data=subset(gr_dat,yr==2022 & TRT.2022 == "amb"),
+            color="#F8D48C",linetype="dashed",linewidth=0.25)+
+  geom_errorbar(data=subset(gr_dat,yr==2022 & TRT.2022 == "amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F4B942",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2022 & TRT.2022 == "amb"),
+             color="#F4B942",shape=21,fill="white",size=1)+
+  
+  # 2022 wet
+  geom_line(data=subset(gr_dat,yr==2022 & TRT.2022 == "wet"),
+            color="#8A99CD",linetype="solid",linewidth=0.25)+
+  geom_errorbar(data=subset(gr_dat,yr==2022 & TRT.2022 == "wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#4059AD",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2022 & TRT.2022 == "wet"),
+             color="#4059AD",shape=21,fill="#8A99CD",size=1)+
+  
+  # wet - amb
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+            color="#F4B942",linetype="solid",linewidth=0.25,alpha=0.5)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F4B942",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 == "wet"),
+             color="#F4B942",shape=21,fill="#F4B942",size=1)+
+  
+  # amb - wet
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+            color="#8A99CD",linetype="dashed",linewidth=0.25,alpha=0.5)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#8A99CD",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 == "amb"),
+             color="#8A99CD",shape=21,fill="white",size=1)+
+  
+  # amb - amb
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+            color="#F8D48C",linetype="dashed",linewidth=0.25)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#F8D48C",width=0.5,linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "amb" & TRT.2022 =="amb"),
+             color="#F8D48C",shape=21,fill="white",size=1)+
+  
+  # wet - wet
+  geom_line(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+            color="#4059AD",linetype="solid",linewidth=0.25)+
+  geom_point(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+             color="#4059AD",shape=21,fill="#4059AD",size=1)+
+  geom_errorbar(data=subset(gr_dat,yr==2023 & TRT.2023 == "wet" & TRT.2022 =="wet"),
+                aes(ymin=av-SE,ymax=av+SE),
+                color="#4059AD",width=0.5,linewidth=0.25)+
+ 
+  # set size for each panel
+  force_panelsizes(rows = unit(1.25, "in"),
+                   cols = unit(2.25, "in"))
+  
+
+daily.three.yrs
+
+#### **Export Fig S3 here** ####
+# ggsave(daily.three.yrs,filename=fi.name,height=3,width=7)
+```
+
+## Fig. 5b) PRS Nitrate - early vs. late
+```{r NO3-N data}
+prs.dat<-read.csv("final_data/SGS_EW_PRS.csv")
+str(prs.dat) # 600 observations
+
+prs.no.na<-prs.dat%>%
+  # rename variables from original file
+  rename(TRT.2022=TRT_2022,TRT.2023=TRT_2023)%>%
+  mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
+  mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
+  # select columns to keep
+  select(c(Plot,Burial,TRT.2022,TRT.2023,Nutrient,rate,below_MDL,Unique_ID,Notes))%>%
+  # drop rows with NA's & below MDL
+  drop_na(rate)%>%
+  filter(below_MDL == "no")
+  
+str(prs.no.na) # 487 observations
+
+prs.no3<-subset(prs.no.na,Nutrient=="NO3_N")
+str(prs.no3) # 40 observations
+```
+
+```{r 2023 NO3-N}
+# subset 2023 and remove outliers from daily analysis
+prs.2023<-prs.no3%>%
+  mutate(resp = rate) # no outliers
+str(prs.2023)
+
+# averages for plotting
+periods.23<-prs.2023%>%
+  mutate(period=case_when(
+    Burial == 1 ~ "early-mid",
+    Burial == 2 ~ "mid-late"))%>%
+  mutate(period=factor(period,levels=c("early-mid","mid-late")))
+
+plot.period.avs<-periods.23%>%
+  group_by(period,TRT.2022,TRT.2023)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av = mean(resp),
+    sd = sd(resp),
+    SE = sd/sqrt(n.plots))
+
+wet.plot.avs.23<-subset(plot.period.avs,TRT.2023=="wet")
+amb.plot.avs.23<-subset(plot.period.avs,TRT.2023=="amb")
+
+#### Fig 5b - wet ####
+# gr_dat<-wet.plot.avs.23
+# fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F5b_PRS-WET.pdf"
+# 
+# p.val.early="p = 0.2481"
+# text.y.early=7
+# 
+# p.val.late="p = 0.8710"
+# text.y.late=7
+# 
+# fill.col=c("#4059AD")
+# x.labs=c("amb"=expression("D"%->%"W"),"wet"=expression("Av"%->%"W"))
+
+#### Fig 5b - amb ####
+gr_dat<-amb.plot.avs.23
+fi.name<-"fig_exports/MS_Final_plots/SGS_EW_F5b_PRS-AV.pdf"
+
+p.val.early="p = 0.0070"
+text.y.early=14.7
+
+p.val.late="p = 0.0367"
+text.y.late=15
+
+fill.col=c("#F4B942")
+x.labs=c("amb"=expression("D"%->%"Av"),"wet"=expression("Av"%->%"Av"))
+
+#### Plot ####
+y.lab<-expression(bold(atop("NO"["3"]*"-N Uptake",paste("(µg 10 cm"^"-2"*" 7 weeks"^"-1"*")"))))
+ylims=c(0,17)
+facet.labs=c("early to mid","mid to late")
+
+
+early.late.23.plot<-ggplot(data=gr_dat,aes(x=TRT.2022,y=av,fill=TRT.2023))+
+  facet_wrap(factor(period, levels = c("early-mid","mid-late"),
+                     labels = facet.labs) ~.)+
+  labs(title=expression(bold("2023")),
+       y=y.lab,x=NULL,
+       # tag=p.val.early
+       )+
+  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL),oob=scales::squish)+
+  scale_x_discrete(labels=x.labs,
+                   # expand=expansion(0.85)
+                   )+
+  # geom_col_pattern(width=0.75,
+  #                  aes(pattern=TRT.2022,fill=TRT.2023),
+  #                  pattern_color="white",
+  #                  pattern_fill=NA,
+  #                  pattern_density=0.2,
+  #                  pattern_spacing=0.04,
+  #                  pattern_alpha=0.75,
+  #                  pattern_aspect_ratio=0.1,
+  #                  color="black"
+  #                  )+
+  geom_col(width=0.75,color="black",position=position_dodge(0.75),fill=fill.col)+
+  # scale_fill_manual(name=NULL,
+  #                   values=fill.col
+  #                   # values=c("#F4B942")
+  #                   )+
+  scale_pattern_manual(values=c("stripe",NA))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        strip.text.x=element_text(size=10,
+                              hjust=0,
+                              # vjust=-6.75,
+                              # vjust=-0.8,
+                              face="bold",
+                              colour="black"),
+        # plot.tag.position=c(1,1),
+        # plot.tag=element_text(size=9,
+        #                       hjust=1,
+        #                       face="italic")
+        )+
+  geom_text(data=subset(gr_dat,period=="early-mid" & 
+                        TRT.2022=="amb"),
+            label=p.val.early,
+            x=1.5,y=text.y.early,
+            color="black",
+            size=9/.pt)+
+  geom_text(data=subset(gr_dat,period=="mid-late" & 
+                        TRT.2022=="amb"),
+            label=p.val.late,
+            x=1.5,y=text.y.late,
+            color="black",
+            size=9/.pt)+
+  force_panelsizes(rows = unit(1.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+early.late.23.plot
+
+#### **Export Fig 5a here** ####
+# ggsave(early.late.23.plot,filename=fi.name,height=3,width=3)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
