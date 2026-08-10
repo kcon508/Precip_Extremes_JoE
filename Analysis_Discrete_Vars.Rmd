@@ -68,11 +68,11 @@ str(anpp)
 
 anpp.no.na<-anpp%>%
   # rename variables from original file
-  rename(TRT.2022=TRT_22,TRT.2023=TRT_23,C3.GRASSES=C3,Notes=Note.)%>%
+  rename(TRT.2022=TRT_22,TRT.2023=TRT_23,C3.GRASSES=C3)%>%
   mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
   mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
   # select columns to keep
-  select(c(Plot,Year,Clip,TRT.2022,TRT.2023,C3.GRASSES,C4,FORB,ANNUALS,TOTAL.GRASSES,ANPP,Notes))%>%
+  select(c(Plot,Year,Clip,TRT.2022,TRT.2023,C3.GRASSES,C4,FORB,ANNUALS,TOTAL.GRASSES,ANPP))%>%
   # drop rows with ANPP NA's
   drop_na(ANPP)%>%
   # create Unique ID for dropping specific observations (outliers)
@@ -210,61 +210,6 @@ shapiro.test(end.22$resp[end.22$TRT.2022 == "wet"]) # fine
 # if normal, use t.test, if not use transformations or wilcox.test
 t.test(resp~TRT.2022,data=end.22) # p < 0.0001
 
-## plot
-end.plot.avs.22<-end.22%>%
-  group_by(TRT.2022)%>%
-  dplyr::summarise(
-    n.plots=n(),
-    av = mean(resp),
-    sd = sd(resp),
-    SE = sd/sqrt(n.plots))
-
-fi.name<-"fig_exports/ANPP/No_Outliers/New/SGS_EW_2022_ANPP_end.pdf"
-y.lab<-expression(paste(bold("ANPP (g m"^"-2"*")")))
-ylims=c(0,160)
-p.val="p < 0.0001"
-text.y=85
-
-end.22.plot<-ggplot(data=end.plot.avs.22,aes(x=TRT.2022,y=av,color=TRT.2022,fill=TRT.2022))+
-  labs(title=expression(bold("2022")),y=y.lab,x=NULL)+
-  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
-  scale_x_discrete(labels=c("amb"="Amb.\nDrought","wet"="Exp.\nWet"),
-                   # expand=expansion(0.85)
-                   )+
-  geom_col_pattern(width=0.75,
-                   aes(pattern=TRT.2022,fill=TRT.2022,color=TRT.2022),
-                   pattern_color="white",
-                   pattern_fill=NA,
-                   pattern_density=0.2,
-                   pattern_spacing=0.04,
-                   pattern_alpha=0.75,
-                   pattern_aspect_ratio=0.1,
-                   )+
-  scale_fill_manual(name=NULL,
-                    values=c("#F8D48C","#B3BEDE"))+
-  scale_pattern_manual(values=c("stripe",NA))+
-  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
-                position=position_dodge(0.75),
-                width=0.1,linewidth=0.25,
-                color="black")+
-  scale_color_manual(name=NULL,
-                     values=c("#F4B942","#4059AD"))+
-  coord_cartesian(clip="off")+
-  plot_theme+
-  theme(axis.ticks.x=element_blank(),
-        axis.text.x=element_text(angle=45,hjust=1,size=9))+
-  geom_text(data=subset(gs.plot.avs.22,TRT.2022=="amb"),
-            label=p.val,
-            x=1.5,y=text.y,
-            color="black",
-            size=9/.pt)+
-  force_panelsizes(rows = unit(1.25,"in"),
-                   cols = unit(0.85, "in"))
-  
-end.22.plot
-
-# ggsave(end.22.plot,filename=fi.name,height=3,width=3)
-
 #### 2023 ####
 end.23<-subset(dat.23,Clip=="Sept_23_clip")
 str(end.23) # 38 observations
@@ -283,138 +228,6 @@ end.23.comb.mod.red<-lm(resp~TRT.2023,data=end.23)
 Anova(end.23.comb.mod.red,type=3)
 step(end.23.comb.mod)
 
-#### <- wet 2023 ####
-wet.end.23<-subset(end.23,TRT.2023=="wet")
-str(wet.end.23) # 19 observations
-
-## T-test
-# check normality
-ggplot(wet.end.23, aes(x = resp, fill = TRT.2022)) +
-  geom_density(alpha = 0.5)
-
-shapiro.test(wet.end.23$resp[wet.end.23$TRT.2022 == "amb"]) # fine
-shapiro.test(wet.end.23$resp[wet.end.23$TRT.2022 == "wet"]) # fine
-
-t.test(resp ~ TRT.2022, data = wet.end.23) # p = 0.6743
-
-#### <- amb 2023 ####
-amb.end.23<-subset(end.23,TRT.2023=="amb")
-str(amb.end.23) # 19 observations
-
-## T-test
-# check normality
-ggplot(amb.end.23, aes(x = resp, fill = TRT.2022)) +
-  geom_density(alpha = 0.5)
-
-shapiro.test(amb.end.23$resp[amb.end.23$TRT.2022 == "amb"]) # fine
-shapiro.test(amb.end.23$resp[amb.end.23$TRT.2022 == "wet"]) # fine
-
-t.test(resp ~ TRT.2022, data = amb.end.23) # p = 0.7594
-
-## plot
-wet.end.plot.avs.23<-wet.end.23%>%
-  group_by(TRT.2022,TRT.2023)%>%
-  dplyr::summarise(
-    n.plots=n(),
-    av = mean(resp),
-    sd = sd(resp),
-    SE = sd/sqrt(n.plots))
-
-amb.end.plot.avs.23<-amb.end.23%>%
-  group_by(TRT.2022,TRT.2023)%>%
-  dplyr::summarise(
-    n.plots=n(),
-    av = mean(resp),
-    sd = sd(resp),
-    SE = sd/sqrt(n.plots))
-
-end.plot.avs.23<-rbind(wet.end.plot.avs.23,amb.end.plot.avs.23)
-
-
-# fi.name<-"fig_exports/ANPP/No_Outliers/New/SGS_EW_2023_ANPP_end.pdf"
-fi.name<-"fig_exports/ANPP/No_Outliers/New/SGS_EW_2023_ANPP_end_ANOVA.pdf"
-
-y.lab<-expression(paste(bold("ANPP (g m"^"-2"*")"))) 
-ylims=c(0,160)
-
-# t-tests p-vals
-# p.val.amb="p = 0.7594"
-# p.val.wet="p = 0.6743"
-
-# ANOVA p-vals
-p.23.amb
-p.val.amb="p = 0.7828"
-p.23.wet
-p.val.wet="p = 0.6420"
-
-text.y.amb=110
-text.y.wet=130
-
-end.23.plot<-ggplot(data=end.plot.avs.23,aes(x=TRT.2022,y=av,fill=TRT.2023))+
-  facet_wrap(~TRT.2023,scales="free")+
-  labs(title=expression(bold("2023")),y=y.lab,x=NULL)+
-  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
-  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
-                   # expand=expansion(0.85)
-                   )+
-  geom_col_pattern(width=0.75,
-                   aes(pattern=TRT.2022,fill=TRT.2023),
-                   pattern_color="white",
-                   pattern_fill=NA,
-                   pattern_density=0.2,
-                   pattern_spacing=0.04,
-                   pattern_alpha=0.75,
-                   pattern_aspect_ratio=0.1,
-                   color="black"
-                   )+
-  scale_fill_manual(name=NULL,
-                    values=c("#F4B942","#4059AD"))+
-  scale_pattern_manual(values=c("stripe",NA))+
-  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
-                position=position_dodge(0.75),
-                width=0.1,linewidth=0.25,
-                color="black")+
-  coord_cartesian(clip="off")+
-  plot_theme+
-  theme(axis.ticks.x=element_blank(),
-        axis.text.x=element_text(angle=45,hjust=1,size=9),
-        strip.text.x=element_blank(),
-        # strip.text.x=element_text(size=10,
-        #                       hjust=0.15,
-        #                       vjust=-6.75,
-        #                       face="bold",
-        #                       colour="black")
-        )+
-  geom_text(data=subset(end.plot.avs.23,
-                        TRT.2023=="amb" &
-                        TRT.2022 == "amb"),
-            label=p.val.amb,
-            x=1.5,y=text.y.amb,
-            color="black",
-            size=9/.pt)+
-  geom_text(data=subset(end.plot.avs.23,
-                        TRT.2023=="wet" & 
-                        TRT.2022=="amb"),
-            label=p.val.wet,
-            x=1.5,y=text.y.wet,
-            color="black",
-            size=9/.pt)+
-  geom_text(data=subset(end.plot.avs.23,
-                        TRT.2022=="amb"),
-            aes(label=TRT.2023,
-            x=0.75,y=145),
-            hjust=0,
-            color="black",
-            size=10/.pt,
-            fontface="bold",
-            inherit.aes=FALSE)+
-  force_panelsizes(rows = unit(1.25,"in"),
-                   cols = unit(0.85, "in"))
-  
-end.23.plot
-
-# ggsave(end.23.plot,filename=fi.name,height=3,width=3)
-
 #### 2024 ####
 end.24<-subset(dat.24,Clip=="Sept_24")
 str(end.24) # 40 observations
@@ -428,141 +241,12 @@ Anova(end.24.comb.mod,type=3) # interaction IS significant
 pairs(emmeans(end.24.comb.mod,pairwise~TRT.2022|TRT.2023))
 p.24.amb<-"Emmeans pairwise p = 0.0262 (t ratio = -2.319, df = 36)"
 p.24.wet<-"Emmeans pairwise p = 0.2725 (t ratio = 1.114, df = 36)"
+step(end.24.comb.mod) # no reduction
 
-step(end.23.comb.mod) # no reduction
-
-#### <- wet 2023 ####
-wet.end.24<-subset(end.24,TRT.2023=="wet")
-str(wet.end.24) # 20 observations
-
-## T-test
-# check normality
-ggplot(wet.end.24, aes(x = resp, fill = TRT.2022)) +
-  geom_density(alpha = 0.5)
-
-shapiro.test(wet.end.24$resp[wet.end.24$TRT.2022 == "amb"]) # fine
-shapiro.test(wet.end.24$resp[wet.end.24$TRT.2022 == "wet"]) # fine
-
-t.test(resp ~ TRT.2022, data = wet.end.24) # p = 0.3223
-
-#### <- amb 2023 ####
-amb.end.24<-subset(end.24,TRT.2023=="amb")
-str(amb.end.24) # 20 observations
-
-## T-test
-# check normality
-ggplot(amb.end.24, aes(x = resp, fill = TRT.2022)) +
-  geom_density(alpha = 0.5)
-
-shapiro.test(amb.end.24$resp[amb.end.24$TRT.2022 == "amb"]) # fine
-shapiro.test(amb.end.24$resp[amb.end.24$TRT.2022 == "wet"]) # fine
-
-t.test(resp ~ TRT.2022, data = amb.end.24) # p = 0.02088
-
-## plot
-wet.end.plot.avs.24<-wet.end.24%>%
-  group_by(TRT.2022,TRT.2023)%>%
-  dplyr::summarise(
-    n.plots=n(),
-    av = mean(resp),
-    sd = sd(resp),
-    SE = sd/sqrt(n.plots))
-
-amb.end.plot.avs.24<-amb.end.24%>%
-  group_by(TRT.2022,TRT.2023)%>%
-  dplyr::summarise(
-    n.plots=n(),
-    av = mean(resp),
-    sd = sd(resp),
-    SE = sd/sqrt(n.plots))
-
-end.plot.avs.24<-rbind(wet.end.plot.avs.24,amb.end.plot.avs.24)
-
-
-# fi.name<-"fig_exports/ANPP/No_Outliers/New/SGS_EW_2024_ANPP_end.pdf"
-fi.name<-"fig_exports/ANPP/No_Outliers/New/SGS_EW_2024_ANPP_end_ANOVA.pdf"
-
-y.lab<-expression(paste(bold("ANPP (g m"^"-2"*")"))) 
-ylims=c(0,160)
-
-# ANOVA p-vals
-p.24.amb
-p.val.amb="p = 0.0262"
-p.24.wet
-p.val.wet="p = 0.2725"
-
-# t-tests p-vals
-# p.val.amb="p = 0.0209"
-# p.val.wet="p = 0.3223"
-
-text.y.amb=45
-text.y.wet=50
-
-end.24.plot<-ggplot(data=end.plot.avs.24,aes(x=TRT.2022,y=av,fill=TRT.2023))+
-  facet_wrap(~TRT.2023,scales="free")+
-  labs(title=expression(bold("2023")),y=y.lab,x=NULL)+
-  scale_y_continuous(limits=ylims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
-  scale_x_discrete(labels=c("amb"="2022\nDrought","wet"="2022\nWet"),
-                   # expand=expansion(0.85)
-                   )+
-  geom_col_pattern(width=0.75,
-                   aes(pattern=TRT.2022,fill=TRT.2023),
-                   pattern_color="white",
-                   pattern_fill=NA,
-                   pattern_density=0.2,
-                   pattern_spacing=0.04,
-                   pattern_alpha=0.75,
-                   pattern_aspect_ratio=0.1,
-                   color="black"
-                   )+
-  scale_fill_manual(name=NULL,
-                    values=c("#F4B942","#4059AD"))+
-  scale_pattern_manual(values=c("stripe",NA))+
-  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
-                position=position_dodge(0.75),
-                width=0.1,linewidth=0.25,
-                color="black")+
-  coord_cartesian(clip="off")+
-  plot_theme+
-  theme(axis.ticks.x=element_blank(),
-        axis.text.x=element_text(angle=45,hjust=1,size=9),
-        strip.text.x=element_blank(),
-        # strip.text.x=element_text(size=10,
-        #                       hjust=0.15,
-        #                       vjust=-6.75,
-        #                       face="bold",
-        #                       colour="black")
-        )+
-  geom_text(data=subset(end.plot.avs.24,
-                        TRT.2023=="amb" &
-                        TRT.2022 == "amb"),
-            label=p.val.amb,
-            x=1.5,y=text.y.amb,
-            color="black",
-            size=9/.pt)+
-  geom_text(data=subset(end.plot.avs.24,
-                        TRT.2023=="wet" & 
-                        TRT.2022=="amb"),
-            label=p.val.wet,
-            x=1.5,y=text.y.wet,
-            color="black",
-            size=9/.pt)+
-  geom_text(data=subset(end.plot.avs.24,
-                        TRT.2022=="amb"),
-            aes(label=paste("2023",TRT.2023,sep=" "),
-            x=0.7,y=145),
-            hjust=0,
-            color="black",
-            size=10/.pt,
-            fontface="bold",
-            inherit.aes=FALSE)+
-  force_panelsizes(rows = unit(1.25,"in"),
-                   cols = unit(0.85, "in"))
-  
-end.24.plot
-
-# ggsave(end.24.plot,filename=fi.name,height=3,width=3)
-
+# pairs keeping 2022 treatment the same and looking for differences from 2023
+pairs(emmeans(end.24.comb.mod,pairwise~TRT.2023|TRT.2022))
+p.24.amb22<-"Emmeans pairwise p = 0.0064 (t ratio = -2.897, df = 36"
+p.24.wet22<-"Emmeans pairwise p = 0.5950 (t ratio = 0.536, df = 36"
 ```
 
 ```{r ANPP mid season}
