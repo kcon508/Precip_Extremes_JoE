@@ -1432,6 +1432,204 @@ end.24.plot
 # ggsave(end.24.plot,filename=fi.name,height=3,width=3)
 ```
 
+```{r ANPP functional group supplemental plots only}
+glimpse(anpp.22)
+glimpse(anpp.23)
+glimpse(anpp.24)
+
+# convert to long for functional groups
+dat.22.long<-pivot_longer(anpp.22,cols=c(C3.GRASSES:ANPP),names_to="funct_group",values_to="gm2")
+dat.23.long<-pivot_longer(anpp.23,cols=c(C3.GRASSES:ANPP),names_to="funct_group",values_to="gm2")
+dat.24.long<-pivot_longer(anpp.24,cols=c(C3.GRASSES:ANPP),names_to="funct_group",values_to="gm2")
+
+#### 2022 functional groups ####
+dat.22.avs<-dat.22.long%>%
+  group_by(Clip,TRT.2022,TRT.2023,funct_group)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av=mean(gm2),
+    sd=sd(gm2),
+    SE=sd/sqrt(n.plots))%>%
+  filter(Clip=="Sept_22_clip")%>%
+  mutate(funct_group=factor(funct_group,levels=c("ANPP","C4","C3.GRASSES","FORB","ANNUALS","TOTAL.GRASSES")))%>%
+  filter(funct_group %in% c("C4","C3.GRASSES","FORB","ANNUALS"))%>%
+  mutate(name.labels=case_when(
+    funct_group == "C4" ~ "C4 Grass",
+    funct_group == "C3.GRASSES" ~ "C3 Grass",
+    funct_group == "FORB" ~ "Forbs",
+    funct_group == "ANNUALS" ~ "Annuals"))%>%
+  mutate(name.labels=factor(name.labels,levels=c("C4 Grass","C3 Grass","Annuals","Forbs")))
+
+fi.name<-"fig_exports/Rev1_Plots/SGS_EW_ANPP2022_supp_big.pdf"
+y.lims=c(0,120)
+
+# fi.name<-"fig_exports/Rev1_Plots/SGS_EW_ANPP2022_supp_small.pdf"
+# y.lims=c(0,30)
+
+plot.2022<-ggplot(data=dat.22.avs,aes(x=TRT.2022,y=av,fill=TRT.2022))+
+  facet_wrap(~name.labels,ncol=4,scales="free")+
+  labs(title=expression(bold("2022")),y=expression("Aboveground biomass (g m"^"-2"*")"),x=NULL)+
+  scale_y_continuous(limits=y.lims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=c("amb"="D","wet"="Av"),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col(width=0.75,color="black",aes(fill=TRT.2022))+
+  scale_fill_manual(name=NULL,
+                    values=c("#F4B942","#4059AD"))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        # strip.text.x=element_text(size=10,
+        #                       hjust=0.15,
+        #                       vjust=-6.75,
+        #                       face="bold",
+        #                       colour="black")
+        )+
+  force_panelsizes(rows = unit(2.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+plot.2022
+
+# ggsave(plot.2022,filename=fi.name,height=10,width=10)
+
+#### 2023 functional groups ####
+dat.23.avs<-dat.23.long%>%
+  group_by(Clip,TRT.2022,TRT.2023,funct_group)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av=mean(gm2),
+    sd=sd(gm2),
+    SE=sd/sqrt(n.plots))%>%
+  # filter(Clip=="Sept_22_clip")%>%
+  mutate(funct_group=factor(funct_group,levels=c("ANPP","C4","C3.GRASSES","FORB","ANNUALS","TOTAL.GRASSES")))%>%
+  filter(funct_group %in% c("C4","C3.GRASSES","FORB","ANNUALS"))%>%
+  mutate(name.labels=case_when(
+    funct_group == "C4" ~ "C4 Grass",
+    funct_group == "C3.GRASSES" ~ "C3 Grass",
+    funct_group == "FORB" ~ "Forbs",
+    funct_group == "ANNUALS" ~ "Annuals"))%>%
+  mutate(name.labels=factor(name.labels,levels=c("C4 Grass","C3 Grass","Annuals","Forbs")))
+
+# Midseason 
+# gr_dat<-subset(dat.23.avs,Clip=="July_23")
+# ti="July 2023"
+
+# fi.name="fig_exports/Rev1_Plots/SGS_EW_ANPP2023_supp_midbig.pdf"
+# y.lims<-c(0,120)
+
+# fi.name="fig_exports/Rev1_Plots/SGS_EW_ANPP2023_supp_midsmall.pdf"
+# y.lims<-c(0,30)
+
+# # End season 
+gr_dat<-subset(dat.23.avs,Clip=="Sept_23_clip")
+ti="Sept 2023"
+
+fi.name="fig_exports/Rev1_Plots/SGS_EW_ANPP2023_supp_endbig.pdf"
+y.lims<-c(0,120)
+
+# fi.name="fig_exports/Rev1_Plots/SGS_EW_ANPP2023_supp_endsmall.pdf"
+# y.lims<-c(0,30)
+
+plot.2023<-ggplot(data=gr_dat,aes(x=interaction(TRT.2022,TRT.2023),y=av,fill=TRT.2023))+
+  facet_wrap(~name.labels,ncol=4,scales="free")+
+  labs(title=ti,y=expression(bold("Aboveground biomass (g m"^"-2"*")")),x=NULL)+
+  scale_y_continuous(limits=y.lims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=c(
+    "amb.amb"=expression("D"%->%"Av"),
+    "amb.wet"=expression("D"%->%"W"),
+    wet.amb=expression("Av"%->%"Av"),
+    wet.wet=expression("Av"%->%"W")),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col(width=0.75,color="black",aes(fill=TRT.2023))+
+  scale_fill_manual(name=NULL,
+                    values=c("#F4B942","#4059AD"))+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        # strip.text.x=element_text(size=10,
+        #                       hjust=0.15,
+        #                       vjust=-6.75,
+        #                       face="bold",
+        #                       colour="black")
+        )+
+  force_panelsizes(rows = unit(2.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+plot.2023
+
+# ggsave(plot.2023,filename=fi.name,height=10,width=10)
+
+#### 2024 functional groups ####
+dat.24.avs<-dat.24.long%>%
+  group_by(Clip,TRT.2022,TRT.2023,funct_group)%>%
+  dplyr::summarise(
+    n.plots=n(),
+    av=mean(gm2),
+    sd=sd(gm2),
+    SE=sd/sqrt(n.plots))%>%
+  # filter(Clip=="Sept_22_clip")%>%
+  mutate(funct_group=factor(funct_group,levels=c("ANPP","C4","C3.GRASSES","FORB","ANNUALS","TOTAL.GRASSES")))%>%
+  filter(funct_group %in% c("C4","C3.GRASSES","FORB","ANNUALS"))%>%
+  mutate(name.labels=case_when(
+    funct_group == "C4" ~ "C4 Grass",
+    funct_group == "C3.GRASSES" ~ "C3 Grass",
+    funct_group == "FORB" ~ "Forbs",
+    funct_group == "ANNUALS" ~ "Annuals"))%>%
+  mutate(name.labels=factor(name.labels,levels=c("C4 Grass","C3 Grass","Annuals","Forbs")))
+
+# fi.name="fig_exports/Rev1_Plots/SGS_EW_ANPP2024_supp_endbig.pdf"
+# y.lims<-c(0,120)
+
+fi.name="fig_exports/Rev1_Plots/SGS_EW_ANPP2024_supp_endsmall.pdf"
+y.lims<-c(0,30)
+
+plot.2024<-ggplot(data=dat.24.avs,aes(x=interaction(TRT.2022,TRT.2023),y=av))+
+  facet_wrap(~name.labels,scales="free",ncol=4)+
+  labs(title=expression(bold("Sept 2024")),y=expression(bold("Aboveground biomass (g m"^"-2"*")")),x=NULL)+
+  scale_y_continuous(limits=y.lims,expand=c(0,0),sec.axis=dup_axis(labels=NULL,name=NULL))+
+  scale_x_discrete(labels=c(
+    "amb.amb"=expression("D"%->%"Av"%->%"D"),
+    "amb.wet"=expression("D"%->%"W"%->%"D"),
+    wet.amb=expression("Av"%->%"Av"%->%"D"),
+    wet.wet=expression("Av"%->%"W"%->%"D")),
+                   # expand=expansion(0.85)
+                   )+
+  geom_col(width=0.75,color="black",fill="#F4B942")+
+  geom_errorbar(aes(ymin=av-SE,ymax=av+SE),
+                position=position_dodge(0.75),
+                width=0.1,linewidth=0.25,
+                color="black")+
+  coord_cartesian(clip="off")+
+  plot_theme+
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_text(angle=45,hjust=1,size=9),
+        # strip.text.x=element_blank(),
+        # strip.text.x=element_text(size=10,
+        #                       hjust=0.15,
+        #                       vjust=-6.75,
+        #                       face="bold",
+        #                       colour="black")
+        )+
+  force_panelsizes(rows = unit(2.25,"in"),
+                   cols = unit(0.85, "in"))
+  
+plot.2024
+
+# ggsave(plot.2024,filename=fi.name,height=10,width=10)
+```
 
 ## Fig. 5a) Soil respiration - early vs. late
 ```{r Respiration data}
