@@ -68,11 +68,11 @@ str(anpp)
 
 anpp.no.na<-anpp%>%
   # rename variables from original file
-  rename(TRT.2022=TRT_22,TRT.2023=TRT_23,C3.GRASSES=C3,Notes=Note.)%>%
+  rename(TRT.2022=TRT_22,TRT.2023=TRT_23,C3.GRASSES=C3)%>%
   mutate(TRT.2022=factor(TRT.2022,levels=c("amb","wet")))%>%
   mutate(TRT.2023=factor(TRT.2023,levels=c("amb","wet")))%>%
   # select columns to keep
-  select(c(Plot,Year,Clip,TRT.2022,TRT.2023,C3.GRASSES,C4,FORB,ANNUALS,TOTAL.GRASSES,ANPP,Notes))%>%
+  select(c(Plot,Year,Clip,TRT.2022,TRT.2023,C3.GRASSES,C4,FORB,ANNUALS,TOTAL.GRASSES,ANPP))%>%
   # drop rows with ANPP NA's
   drop_na(ANPP)%>%
   # create Unique ID for dropping specific observations (outliers)
@@ -1088,7 +1088,7 @@ plot.2023<-ggplot(data=gr_dat,aes(x=interaction(TRT.2022,TRT.2023),y=av,fill=TRT
   
 plot.2023
 
-ggsave(plot.2023,filename=name,height=10,width=10)
+# ggsave(plot.2023,filename=name,height=10,width=10)
 
 #### 2024 functional groups ####
 dat.24.avs<-dat.24.long%>%

@@ -1418,7 +1418,7 @@ end.24.plot<-ggplot(data=end.plot.avs.24,aes(x=TRT.22.23,y=av))+
             x=1.5,y=55,
             color="black",
             size=9/.pt)+
-    geom_text(data=subset(end.plot.avs.24,TRT.2022=="wet"),
+  geom_text(data=subset(end.plot.avs.24,TRT.2022=="wet"),
             label="p = 0.5950",
             x=1.5,y=55,
             color="black",

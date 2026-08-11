@@ -563,8 +563,7 @@ mod.check<-lmer(resp~as.factor(new.Date)*TRT.2022*TRT.2023+(1|Plot),data=dat)
 plot(mod.check)
 qqnorm(resid(mod.check));qqline(resid(mod.check))
 
-anova(mod.check,ddf="Kenward-Roger") # only data significant
-gcc.24.sig.pairs<-"no trt carryover"
+anova(mod.check,ddf="Kenward-Roger") # only date significant
 ```
 
 ```{r GCC comparisons for growing seasons}
