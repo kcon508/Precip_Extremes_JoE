@@ -2,33 +2,21 @@
 title: "MS Selected Plots - Nov 25"
 author: "Kathy Condon"
 date: "`r Sys.Date()`"
-output: word_document
 ---
+
+Graphing code associated with Condon KV, Tooley EG, Siggers JA, Sturchio MA, Hajek OL, and Knapp AK. Do years with extreme precipitation anomalies magnify legacy effects in semi-arid grassland ecosystems? 
+
+Accepted to Journal of Ecology October 2026
+
+NOTE: Analysis files must be run first for figures to generate with p-value labels -- see "Analysis_Continuous_Vars.R" and "Analysis_Discrete_Vars.R" 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-library(knitr)
 library(tidyverse)
-library(dplyr)
-library(car)
-library(emmeans)
-library(multcomp)
-library(lmerTest)
-library(lme4)
-library(RColorBrewer)
-library(rstatix)
-library(tidyr)
-library(ggpubr)
 library(lubridate)
-library(ggtext)
 library(ggh4x)
 library(ggpattern)
-library(data.table)
-library(MuMIn)
-library(scales)
-library(performance)
-
 
 plot_theme<-theme_classic()+
   theme(
@@ -809,7 +797,7 @@ gs.22.plot
 ```
 
 ### e) 2023 - early vs. late
-```{r 2023 VWC}
+```{r 2023 GCC}
 # subset 2023 and remove outliers from daily analysis
 gcc.2023<-subset(gcc.no.na,yr=="2023")%>%
   filter(!Unique_ID %in% c(
