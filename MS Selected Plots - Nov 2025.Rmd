@@ -106,7 +106,7 @@ gs.gr.comb<-filter(gs.all.comb,yr %in% c("2022","2023","2024"))%>%
   pivot_longer(cols=c(mm_precip,month_gs_LTA_adj),names_to="precip_groups2",values_to="precip_total")%>%
   mutate(mon=factor(mon))
 
-view(gs.gr.comb)
+# view(gs.gr.comb)
 
 
 #### plotting monthly bars ####

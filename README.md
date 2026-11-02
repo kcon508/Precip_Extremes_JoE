@@ -1,9 +1,10 @@
 # Precip_Extremes_JoE
-Data and code associated with manuscript submission
+Data and code associated with manuscript Condon KV, Tooley EG, Siggers JA, Sturchio MA, Hajek OL, and Knapp AK. Do years with extreme precipitation anomalies magnify legacy effects in semi-arid grassland ecosystems? 
+
+Accepted to Journal of Ecology October 2026
 
 ## Analysis files
 1. Analysis_Continuous_Vars.Rmd
-
 2. Analysis_Discrete_Vars.Rmd
 
 ## Data files (final_data)
